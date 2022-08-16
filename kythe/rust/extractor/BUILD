@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load(":extractor_test.bzl", "rust_extractor_test")
 
@@ -49,15 +49,6 @@ sh_binary(
         "@platforms//os:linux": ["@rust_linux_x86_64__x86_64-unknown-linux-gnu_tools//:rustc_lib"],
         "@platforms//os:osx": ["@rust_darwin_x86_64__x86_64-apple-darwin_tools//:rustc_lib"],
     }),
-)
-
-rust_clippy(
-    name = "clippy",
-    deps = [
-        ":extractor",
-        ":extractor_integration_test_binary",
-        ":kythe_rust_extractor",
-    ],
 )
 
 rust_binary(

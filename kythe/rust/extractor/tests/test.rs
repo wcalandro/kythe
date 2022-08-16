@@ -49,14 +49,14 @@ fn correct_arguments_succeed() {
     let temp_dir = TempDir::new("extractor_test").expect("Could not create temporary directory");
     let args: Vec<String> = vec![
         "".to_string(),
-        test_file.to_string(),
+        test_file,
         format!("-L{}", sysroot),
         "--crate-name=test_crate".to_string(),
         format!("--out-dir={}", temp_dir.path().to_str().unwrap()),
     ];
     let analysis_directory = PathBuf::from(temp_dir.path());
     let result = generate_analysis(args, analysis_directory, "lib");
-    assert_eq!(result.unwrap(), (), "generate_analysis result wasn't void");
+    assert_eq!(result.err(), None, "generate_analysis returned unexpected error");
 
     // Ensure the save_analysis file exists
     let _ = File::open(Path::new(temp_dir.path()).join("save-analysis/lib.json"))

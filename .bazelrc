@@ -98,3 +98,7 @@ build:clang-tidy --copt=-Wunused-private-field --copt=-Wuser-defined-warnings
 # Support user-provided user.bazelrc
 try-import %workspace%/user.bazelrc
     .
+
+# Enable clippy linting on all Rust targets
+build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build --output_groups=+clippy_checks

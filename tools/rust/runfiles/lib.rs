@@ -41,6 +41,6 @@ mod test {
     fn test_path_generated_correctly() {
         let r = Runfiles::create().expect("Failed to get path for current executable");
         let file_path = r.rlocation("io_kythe/tools/rust/runfiles/testfile.txt");
-        assert_eq!(file_path.exists(), true);
+        assert!(file_path.exists());
     }
 }

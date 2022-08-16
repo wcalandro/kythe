@@ -144,7 +144,7 @@ fn diagnostics_properly_emitted() -> Result<(), KytheError> {
         Some("test details"),
         Some("test url"),
     )?;
-    let verify_diagnostic_vname = |vname: &VName| -> () {
+    let verify_diagnostic_vname = |vname: &VName| {
         assert_eq!(vname.get_corpus(), "test_corpus");
         assert_eq!(vname.get_language(), "test_language");
     };
@@ -155,23 +155,23 @@ fn diagnostics_properly_emitted() -> Result<(), KytheError> {
 
     // The first entry defines the kind
     let entry0 = entries.get(0).unwrap();
-    verify_diagnostic_vname(&entry0.get_source());
+    verify_diagnostic_vname(entry0.get_source());
     assert_eq!(entry0.get_fact_name(), "/kythe/node/kind");
     assert_eq!(entry0.get_fact_value(), b"diagnostic".to_vec());
 
     // The second and third define the start/end of the anchor
     let entry1 = entries.get(1).unwrap();
-    verify_diagnostic_vname(&entry1.get_source());
+    verify_diagnostic_vname(entry1.get_source());
     assert_eq!(entry1.get_fact_name(), "/kythe/message");
     assert_eq!(entry1.get_fact_value(), b"test diagnostic".to_vec());
 
     let entry2 = entries.get(2).unwrap();
-    verify_diagnostic_vname(&entry2.get_source());
+    verify_diagnostic_vname(entry2.get_source());
     assert_eq!(entry2.get_fact_name(), "/kythe/details");
     assert_eq!(entry2.get_fact_value(), b"test details".to_vec());
 
     let entry3 = entries.get(3).unwrap();
-    verify_diagnostic_vname(&entry3.get_source());
+    verify_diagnostic_vname(entry3.get_source());
     assert_eq!(entry3.get_fact_name(), "/kythe/context/url");
     assert_eq!(entry3.get_fact_value(), b"test url".to_vec());
 

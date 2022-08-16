@@ -50,10 +50,7 @@ impl AsRef<Vec<Entry>> for ArrayWriter {
 #[test]
 fn array_writer_test() {
     let entry = Entry::new();
-    let mut test_vec = Vec::new();
-    test_vec.push(entry.clone());
-
     let mut writer = ArrayWriter::new();
-    assert_eq!(writer.write_entry(entry).unwrap(), ());
-    assert_eq!(writer.as_ref().clone(), test_vec);
+    writer.write_entry(entry.clone()).unwrap();
+    assert_eq!(writer.as_ref().clone(), vec![entry]);
 }

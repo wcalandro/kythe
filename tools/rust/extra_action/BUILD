@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,12 +11,5 @@ rust_binary(
         "@crate_index//:anyhow",
         "@crate_index//:clap",
         "@crate_index//:protobuf",
-    ],
-)
-
-rust_clippy(
-    name = "clippy",
-    deps = [
-        ":extra_action",
     ],
 )

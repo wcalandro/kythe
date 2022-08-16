@@ -29,8 +29,6 @@ use {
     fuchsia_extractor_lib::kzip,
     lazy_static::lazy_static,
     regex::Regex,
-    rls_data,
-    serde_json,
     sha2::{Digest, Sha256},
     std::fs,
     std::path::Path,
@@ -38,7 +36,7 @@ use {
 };
 
 /// By convention, the source corpus name is "".
-const RLIBS_CORPUS_NAME: &'static str = "rlibs";
+const RLIBS_CORPUS_NAME: &str = "rlibs";
 
 /// Reads the entire directory pointed at by `dir`.  The returned result
 /// contains only names of regular files found.  The names must match `pattern`.
@@ -61,7 +59,7 @@ fn read_dir(dir: &Path, recursive: bool, pattern: &Regex) -> Result<Vec<PathBuf>
         } else {
             let path = f.path();
             let path_str = &path.to_string_lossy().to_string();
-            if pattern.is_match(&path_str) && path_str != "" {
+            if pattern.is_match(path_str) && !path_str.is_empty() {
                 files.push(path);
             }
         }
@@ -82,15 +80,14 @@ fn read_save_analysis_dir(dir: Option<&str>) -> Result<Vec<PathBuf>> {
         None => Ok(vec![]),
         Some(ref d) => {
             let path = PathBuf::from(d);
-            let files = read_dir(&path, false, &MATCH_JSON)
-                .with_context(|| format!("while reading analysis dir: {:?}", &path));
-            files
+            read_dir(&path, false, &MATCH_JSON)
+                .with_context(|| format!("while reading analysis dir: {:?}", &path))
         }
     }
 }
 
 /// Generates a unique filename in `output_dir` for the kzip archive.
-fn get_unique_filename(file: &PathBuf, output_dir: &PathBuf) -> Result<PathBuf> {
+fn get_unique_filename(file: &Path, output_dir: &Path) -> Result<PathBuf> {
     let mut hasher = Sha256::new();
     let file_str = file.to_str().expect("should be convertible to string");
 
@@ -98,7 +95,7 @@ fn get_unique_filename(file: &PathBuf, output_dir: &PathBuf) -> Result<PathBuf> 
     let bytes = hasher.finalize();
     let filename = format!("{}.rs.kzip", hex::encode(bytes));
 
-    let mut output_filename = output_dir.clone();
+    let mut output_filename = output_dir.to_path_buf();
     output_filename.push(filename);
     Ok(output_filename)
 }
@@ -118,7 +115,7 @@ fn partial_canonicalize_path(path: &PathBuf) -> Result<PathBuf> {
     for component in path.components() {
         match component {
             std::path::Component::ParentDir => {
-                if retained_components.len() == 0 {
+                if retained_components.is_empty() {
                     return Err(anyhow::anyhow!(
                         "partial_canoncalize_path: can not cd to .. beyond root in {:?}",
                         path
@@ -158,16 +155,16 @@ fn make_vname(
             file_name, base_dir
         )
     })?;
-    let base_dir = partial_canonicalize_path(&base_dir)?;
+    let base_dir = partial_canonicalize_path(base_dir)?;
     let rel_path = make_relative_to(&rel_path, &base_dir)?;
     let mut vname = VName::new();
     vname.set_language(language.to_string());
     vname.set_corpus(corpus.to_string());
     vname.set_root(root.to_string());
-    let rel_path_str = rel_path
-        .to_str()
-        .ok_or(anyhow::anyhow!("make_vname: could not convert to UTF-8: {:?}", &rel_path))?;
-    if let Some(_) = rel_path_str.find("../") {
+    let rel_path_str = rel_path.to_str().ok_or_else(|| {
+        anyhow::anyhow!("make_vname: could not convert to UTF-8: {:?}", &rel_path)
+    })?;
+    if rel_path_str.contains("../") {
         return Err(anyhow::anyhow!(
             concat!(concat!(
                 "make_vname: base_dir:\n\t{:?}\n\tis expected to be ",
@@ -199,7 +196,9 @@ fn make_file_input(
     file_info.set_path(
         file_name
             .to_str()
-            .ok_or(anyhow::anyhow!("make_file_input: could not convert to UTF-8: {:?}", file_name))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("make_file_input: could not convert to UTF-8: {:?}", file_name)
+            })?
             .to_string(),
     );
     file_info.set_digest(digest.to_string());
@@ -245,6 +244,7 @@ fn get_crate_directory(prelude: &rls_data::CratePreludeData) -> PathBuf {
     root_path.parent().unwrap_or(&PathBuf::from("")).to_path_buf()
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Populates a single input into the Writer.
 ///
 /// `path` is the (possibly relative) file path to the file to add.
@@ -275,9 +275,9 @@ fn add_input(
         .with_context(|| format!("add_input: while writing content for: {:?}", &path))?;
     required_inputs.push(path_from_compilation_dir.to_string_lossy().to_string());
     file_inputs.push(make_file_input(
-        make_vname(&path, corpus_name, root, &base_dir, "rust")?,
+        make_vname(&path, corpus_name, root, base_dir, "rust")?,
         &path,
-        &compilation_base_dir,
+        compilation_base_dir,
         &digest,
     )?);
     Ok(())
@@ -346,7 +346,7 @@ lazy_static! {
 /// Finds the likely corpus root for a file with the given `relative_path`.  If
 /// unknown, the assumed corpus root is going to be "unknown".  `relative_path`
 /// is assumed to be relative to the build directory.
-fn corpus_root_for(relative_path: &PathBuf) -> &'static CorpusRoot {
+fn corpus_root_for(relative_path: &Path) -> &'static CorpusRoot {
     let pathstr = relative_path.to_string_lossy();
     ROOT_MAP.iter().find(|r| pathstr.starts_with(r.path)).unwrap_or(&ROOT_MAP[ROOT_MAP.len() - 1])
 }
@@ -355,11 +355,11 @@ fn corpus_root_for(relative_path: &PathBuf) -> &'static CorpusRoot {
 /// `src_path` is the absolute, but not necessarily canonicalized path to the
 /// file to add.
 fn add_source_input(
-    mut archive: &mut kzip::Writer,
+    archive: &mut kzip::Writer,
     src_path: &PathBuf,
     options: &Options,
-    mut required_inputs: &mut Vec<String>,
-    mut file_inputs: &mut Vec<CompilationUnit_FileInput>,
+    required_inputs: &mut Vec<String>,
+    file_inputs: &mut Vec<CompilationUnit_FileInput>,
 ) -> Result<()> {
     // "../../file.txt"
     let src_path_relative = make_relative_to(src_path, &options.base_dir)?;
@@ -368,17 +368,17 @@ fn add_source_input(
     let corpus_relative_path = PathBuf::from(&corpus_root_info.path);
     // absolute path to "
     let src_base_dir = partial_canonicalize_path(&options.base_dir.join(corpus_relative_path))
-        .with_context(|| format!("add_source_input: while canonicalizing"))?;
+        .with_context(|| "add_source_input: while canonicalizing".to_string())?;
     println!("src_path:\n\t{:?}\ncorpus_root:\n\t{:?}", &src_path, &corpus_root_info);
     add_input(
-        &mut archive,
+        archive,
         &options.corpus_name,
-        &src_path,
+        src_path,
         corpus_root_info.name,
         &src_base_dir,
         &options.base_dir,
-        &mut required_inputs,
-        &mut file_inputs,
+        required_inputs,
+        file_inputs,
     )
     .with_context(|| format!("add_source_input: while adding Rust file: {:?}", &src_path))
 }
@@ -388,7 +388,7 @@ fn add_source_input(
 /// Generates a kzip archive with its compilation unit as result.
 fn process_file(
     file: &PathBuf,
-    output_dir: &PathBuf,
+    output_dir: &Path,
     analysis: &rls_data::Analysis,
     options: &Options,
 ) -> Result<PathBuf> {
@@ -436,24 +436,22 @@ fn process_file(
     )?);
 
     // Add all arguments.
-    let compilation = analysis
-        .compilation
-        .as_ref()
-        .ok_or(anyhow::anyhow!("process_file: analysis JSON file has no compilation section"))?;
+    let compilation = analysis.compilation.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("process_file: analysis JSON file has no compilation section")
+    })?;
     let arguments: Vec<String> = compilation.arguments.clone();
 
-    let prelude = analysis
-        .prelude
-        .as_ref()
-        .ok_or(anyhow::anyhow!("process_file: analysis JSON file has no prelude section"))?;
-    let crate_name = get_crate_name(&prelude);
+    let prelude = analysis.prelude.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("process_file: analysis JSON file has no prelude section")
+    })?;
+    let crate_name = get_crate_name(prelude);
 
     let mut required_inputs: Vec<String> = vec![];
 
     // Add each Rust file under the crate root directory into the kzip.
-    let crate_root_directory = get_crate_directory(&prelude);
+    let crate_root_directory = get_crate_directory(prelude);
     let crate_root_directory = &options.base_dir.join(crate_root_directory);
-    let rust_files = read_dir(&crate_root_directory, true, &MATCH_RUST).with_context(|| {
+    let rust_files = read_dir(crate_root_directory, true, &MATCH_RUST).with_context(|| {
         format!("process_file: while reading crate root: {:?}", &crate_root_directory)
     })?;
 
@@ -487,7 +485,7 @@ fn process_file(
     compilation_unit.set_argument(protobuf::RepeatedField::from_vec(arguments));
     compilation_unit.set_required_input(protobuf::RepeatedField::from_vec(file_inputs));
     compilation_unit.set_source_file(protobuf::RepeatedField::from_vec(required_inputs));
-    let compilation_output_path = get_compilation_output_name(&compilation);
+    let compilation_output_path = get_compilation_output_name(compilation);
     compilation_unit.set_output_key(compilation_output_path.to_string_lossy().to_string());
 
     let abs_base_dir = fs::canonicalize(&options.base_dir).with_context(|| {
@@ -524,7 +522,7 @@ fn lenient_process_file(file_name: &PathBuf, options: &Options) -> Result<PathBu
             &file_name
         )
     })?;
-    process_file(&file_name, &options.output_dir, &analysis, options).with_context(|| {
+    process_file(file_name, &options.output_dir, &analysis, options).with_context(|| {
         format!("lenient_process_files: while processing file:\n\t{:?}", &file_name)
     })
 }
@@ -543,8 +541,8 @@ fn process_files(files: &[PathBuf], options: &Options) -> Result<Vec<PathBuf>> {
             if !options.quiet {
                 println!("\nprocess_files: processing {:?}", &file_name);
             }
-            let kzip = lenient_process_file(&file_name, &options)
-                .with_context(|| format!("process_file: found error"));
+            let kzip = lenient_process_file(file_name, options)
+                .with_context(|| "process_file: found error".to_string());
             match kzip {
                 Err(ref e) => {
                     eprintln!("process_files: found error: {:?}", e);
@@ -591,8 +589,8 @@ fn make_relative_to(path: &impl AsRef<Path>, parent: &impl AsRef<Path>) -> Resul
         }
     }
     let mut result = PathBuf::new();
-    let _ = dest_components.map(|_| result.push("..")).collect::<()>();
-    let _ = src_components.map(|c| result.push(&c)).collect::<()>();
+    dest_components.for_each(|_| result.push(".."));
+    src_components.for_each(|c| result.push(&c));
     Ok(result)
 }
 
@@ -638,19 +636,13 @@ fn main() -> Result<()> {
     // Clap version that we use has no direct parsing to options, so we do it this
     // way.
     let files_from_dirs = read_save_analysis_dir(matches.value_of("INPUT_DIR"))
-        .with_context(|| format!("while reading input directories"))?;
-    let explicit_files = matches
-        .value_of("INPUT")
-        .unwrap_or("")
-        .split(",")
-        .map(|e| e.into())
-        .collect::<Vec<PathBuf>>();
-    let all_files: Vec<PathBuf> =
-        files_from_dirs.into_iter().chain(explicit_files.into_iter()).collect();
+        .with_context(|| "while reading input directories".to_string())?;
+    let explicit_files = matches.value_of("INPUT").unwrap_or("").split(',').map(|e| e.into());
+    let all_files: Vec<PathBuf> = files_from_dirs.into_iter().chain(explicit_files).collect();
     let output_dir: PathBuf = matches.value_of("OUTPUT_DIR").unwrap().into();
     let corpus_name = matches
         .value_of("CORPUS")
-        .unwrap_or(&std::env::var("KYTHE_CORPUS").unwrap_or("fuchsia".into()))
+        .unwrap_or(&std::env::var("KYTHE_CORPUS").unwrap_or_else(|_| "fuchsia".to_string()))
         .to_string();
     let language_name = matches.value_of("LANGUAGE").unwrap_or("rust");
     let base_dir: PathBuf = matches.value_of("BASE_DIR").unwrap_or(".").into();
@@ -658,14 +650,14 @@ fn main() -> Result<()> {
         .value_of("REVISIONS")
         .unwrap_or("")
         .to_string()
-        .split(",")
+        .split(',')
         .map(|e| e.into())
         .collect::<Vec<String>>();
     let quiet = matches.is_present("QUIET");
     let with_rlibs = matches.is_present("WITH_RLIBS");
 
     let options = Options {
-        corpus_name: corpus_name.to_string(),
+        corpus_name,
         language_name: language_name.to_string(),
         base_dir,
         output_dir,
@@ -746,13 +738,15 @@ mod testing {
         ];
         for test in tests {
             let src = temp_dir.path().join(&test.source);
-            fs::create_dir_all(&src)
-                .expect(&format!("source dir created: {:?} in test:\n\t{:?}", &src, &test));
+            fs::create_dir_all(&src).unwrap_or_else(|_| {
+                panic!("source dir created: {:?} in test:\n\t{:?}", &src, &test)
+            });
             let dest_dir = temp_dir.path().join(&test.dest);
-            fs::create_dir_all(&dest_dir)
-                .expect(&format!("dest dir created: {:?} in test:\n\t{:?}", &dest_dir, &test));
+            fs::create_dir_all(&dest_dir).unwrap_or_else(|_| {
+                panic!("dest dir created: {:?} in test:\n\t{:?}", &dest_dir, &test)
+            });
             let actual = rebase_path(&src, &dest_dir)
-                .expect(&format!("rebase_path fails in test: {:?}", &test));
+                .unwrap_or_else(|_| panic!("rebase_path fails in test: {:?}", &test));
             assert_eq!(actual, test.expected, "mismatch in test: {:?}", &test);
         }
     }
@@ -762,7 +756,8 @@ mod testing {
     fn test_make_file_input() {
         let temp_dir = TempDir::new("dir").expect("temp dir created");
         let base_dir = temp_dir.path().join("src-root-dir");
-        fs::create_dir_all(&base_dir).expect(&format!("base dir created: {:?}", &base_dir));
+        fs::create_dir_all(&base_dir)
+            .unwrap_or_else(|_| panic!("base dir created: {:?}", &base_dir));
         let save_analysis_dir = base_dir.join("save-analysis-dir");
         fs::create_dir_all(&save_analysis_dir).expect("save analysis dir created");
         let file_name = save_analysis_dir.join("save-analysis.json");
@@ -861,7 +856,7 @@ mod testing {
 
         // Reading save analysis directory gives the save analysis files.
         let result: HashSet<String> =
-            read_save_analysis_dir(Some(&save_analysis_dir.to_string_lossy().to_string()))
+            read_save_analysis_dir(Some(&save_analysis_dir.to_string_lossy()))
                 .expect("read was a success")
                 .iter()
                 .map(|e| e.to_string_lossy().to_string())
@@ -920,9 +915,10 @@ mod testing {
 
     fn unzip_compilation_unit(zip_path: impl AsRef<Path>) -> IndexedCompilation {
         let file = fs::File::open(&zip_path.as_ref())
-            .expect(&format!("could not open zip file: {:?}", &zip_path.as_ref()));
-        let mut zip = zip::ZipArchive::new(file)
-            .expect(&format!("could not create zip file handle: {:?}", &zip_path.as_ref()));
+            .unwrap_or_else(|_| panic!("could not open zip file: {:?}", &zip_path.as_ref()));
+        let mut zip = zip::ZipArchive::new(file).unwrap_or_else(|_| {
+            panic!("could not create zip file handle: {:?}", &zip_path.as_ref())
+        });
         for i in 0..zip.len() {
             let mut file = zip.by_index(i).unwrap();
             if !file.is_file() || !file.name().starts_with("root/pbunits/") {
@@ -951,7 +947,7 @@ mod testing {
             corpus_name: "fuchsia".into(),
             language_name: "rust".into(),
             base_dir: data_dir.join("out/terminal.x64"),
-            output_dir: temp_dir.path().clone().to_path_buf(),
+            output_dir: temp_dir.path().to_path_buf(),
             revisions: vec!["revision1".into()],
             quiet: true,
             with_rlibs: true,
@@ -1036,7 +1032,7 @@ mod testing {
             corpus_name: "fuchsia".into(),
             language_name: "rust".into(),
             base_dir: data_dir.join("out/terminal.x64"),
-            output_dir: temp_dir.path().clone().to_path_buf(),
+            output_dir: temp_dir.path().to_path_buf(),
             revisions: vec!["revision1".into()],
             quiet: true,
             with_rlibs: true,
@@ -1081,7 +1077,7 @@ mod testing {
             corpus_name: "fuchsia".into(),
             language_name: "rust".into(),
             base_dir: data_dir.join("out/terminal.x64"),
-            output_dir: temp_dir.path().clone().to_path_buf(),
+            output_dir: temp_dir.path().to_path_buf(),
             revisions: vec!["revision1".into()],
             quiet: true,
             with_rlibs: true,

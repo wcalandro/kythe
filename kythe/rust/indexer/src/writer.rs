@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(bytes.len(), 10);
 
         // Size entry should be 9
-        assert_eq!(bytes.get(0).unwrap(), &9u8);
+        assert_eq!(bytes.first().unwrap(), &9u8);
 
         // Parse the other bytes into an Entry and check equality with original
         let entry_bytes = bytes.get(1..bytes.len()).unwrap();

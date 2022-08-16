@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -85,13 +85,6 @@ rust_test(
     deps = [
         "@crate_index//:serial_test",
         "@crate_index//:zip",
-    ],
-)
-
-rust_clippy(
-    name = "clippy",
-    deps = [
-        ":fuchsia_extractor_lib",
     ],
 )
 
