@@ -95,10 +95,9 @@ build:clang-tidy --copt=-Wundefined-bool-conversion --copt=-Wunreachable-code --
 build:clang-tidy --copt=-Wunused-function --copt=-Wunused-lambda-capture --copt=-Wunused-local-typedef
 build:clang-tidy --copt=-Wunused-private-field --copt=-Wuser-defined-warnings
 
-# Support user-provided user.bazelrc
-try-import %workspace%/user.bazelrc
-    .
-
 # Enable clippy linting on all Rust targets
 build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
 build --output_groups=+clippy_checks
+
+# Support user-provided user.bazelrc
+try-import %workspace%/user.bazelrc
