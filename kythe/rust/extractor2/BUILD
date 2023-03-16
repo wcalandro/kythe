@@ -1,3 +1,4 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -47,4 +48,9 @@ rust_clippy(
         ":extractor",
         ":extractor_lib",
     ],
+)
+
+bzl_library(
+    name = "aspect_bzl",
+    srcs = ["aspect.bzl"],
 )
