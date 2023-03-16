@@ -29,7 +29,7 @@ version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
 dependencies = [
- "hermit-abi 0.1.19 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hermit-abi 0.1.19",
  "libc",
  "winapi",
 ]
@@ -459,7 +459,7 @@ version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fac9e2da13b5eb447a6ce3d392f23a29d8694bff781bf03a16cd9ac8697593b"
 dependencies = [
- "hermit-abi 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hermit-abi 0.2.6",
  "libc",
 ]
 

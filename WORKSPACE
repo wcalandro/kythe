@@ -91,6 +91,9 @@ load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository", "rend
 # Run `CARGO_BAZEL_REPIN=1 bazel sync --only=crate_index` after updating
 crates_repository(
     name = "crate_index",
+    annotations = {
+        "protobuf-codegen": [crate.annotation(gen_binaries = True)],
+    },
     cargo_lockfile = "//:Cargo.Bazel.lock",
     lockfile = "//:cargo-bazel-lock.json",
     packages = {
@@ -165,6 +168,7 @@ crates_repository(
     render_config = render_config(
         default_package_name = "",
     ),
+    rust_version = "nightly/2023-03-16",
 )
 
 load("@crate_index//:defs.bzl", "crate_repositories")

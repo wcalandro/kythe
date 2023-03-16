@@ -19,7 +19,7 @@
 # is not present (which usually occurs if we are running in Cloud Build), we
 # use the version of rustfmt installed on the system.
 if [[ -d "bazel-kythe/external/rules_rust" ]]; then
-    RUSTFMT=$(find -L bazel-kythe/external -not \( -path "bazel-kythe/external/io_kythe" -prune \) -wholename "bazel-kythe/external/rust_*_x86_64*_tools/bin/rustfmt")
+    RUSTFMT=$(find -L bazel-kythe/external -not \( -path "bazel-kythe/external/io_kythe" -prune \) -wholename "bazel-kythe/external/rustfmt_*_x86_64*_tools/bin/rustfmt")
 else
     RUSTFMT="rustfmt"
 fi
