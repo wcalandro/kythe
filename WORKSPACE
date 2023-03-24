@@ -89,6 +89,8 @@ ruby_bundle(
 load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository", "render_config")
 
 # Run `CARGO_BAZEL_REPIN=1 bazel sync --only=crate_index` after updating
+rust_analyzer_version = "=0.0.149"
+
 crates_repository(
     name = "crate_index",
     annotations = {
@@ -98,14 +100,14 @@ crates_repository(
     lockfile = "//:cargo-bazel-lock.json",
     packages = {
         "anyhow": crate.spec(
-            version = "1.0.58",
+            version = "=1.0.68",
         ),
         "base64": crate.spec(
-            version = "0.13.0",
+            version = "=0.13.0",
         ),
         "clap": crate.spec(
             features = ["derive"],
-            version = "3.1.6",
+            version = "=3.2.23",
         ),
         "colored": crate.spec(
             version = "2.0.0",
@@ -125,8 +127,29 @@ crates_repository(
         "path-clean": crate.spec(
             version = "0.1.0",
         ),
+        "ra_ap_hir": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_ide": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_ide_db": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_paths": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_project_model": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_syntax": crate.spec(
+            version = rust_analyzer_version,
+        ),
+        "ra_ap_vfs": crate.spec(
+            version = rust_analyzer_version,
+        ),
         "rayon": crate.spec(
-            version = "1.5.3",
+            version = "=1.6.1",
         ),
         "regex": crate.spec(
             version = "1.5.6",
@@ -136,6 +159,12 @@ crates_repository(
         ),
         "rls-data": crate.spec(
             version = "0.19.1",
+        ),
+        "rowan": crate.spec(
+            version = "=0.15.10",
+        ),
+        "rustc-hash": crate.spec(
+            version = "=1.1.0",
         ),
         "serde": crate.spec(
             version = "1.0.137",

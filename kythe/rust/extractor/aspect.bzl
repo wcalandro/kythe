@@ -75,6 +75,8 @@ def _process_basic_crate_info(ctx, crate_info):
     for dep in crate_info.deps.to_list():
         if dep.build_info != None:
             out_dir_path = dep.build_info.out_dir.path
+            runfiles.append(dep.build_info.out_dir)
+
     crate["out_dir_path"] = out_dir_path
 
     return (crate, runfiles)
@@ -87,7 +89,7 @@ extract_rust_aspect = aspect(
     required_providers = [CrateInfo],
     attrs = {
         "_rust_extractor": attr.label(
-            default = Label("//kythe/rust/extractor2:extractor"),
+            default = Label("//kythe/rust/extractor"),
             executable = True,
             cfg = "exec",
         ),

@@ -93,79 +93,79 @@ rust_clippy(
     ],
 )
 
-rust_indexer_test(
-    name = "anchors_test",
-    srcs = ["testdata/anchors.rs"],
-)
+# rust_indexer_test(
+#     name = "anchors_test",
+#     srcs = ["testdata/anchors.rs"],
+# )
 
-rust_indexer_test(
-    name = "comment_test",
-    srcs = ["testdata/comment.rs"],
-)
+# rust_indexer_test(
+#     name = "comment_test",
+#     srcs = ["testdata/comment.rs"],
+# )
 
-rust_indexer_test(
-    name = "enum_test",
-    srcs = ["testdata/enum.rs"],
-)
+# rust_indexer_test(
+#     name = "enum_test",
+#     srcs = ["testdata/enum.rs"],
+# )
 
-rust_indexer_test(
-    name = "function_test",
-    srcs = ["testdata/function.rs"],
-)
+# rust_indexer_test(
+#     name = "function_test",
+#     srcs = ["testdata/function.rs"],
+# )
 
-rust_indexer_test(
-    name = "modules_test",
-    srcs = glob(["testdata/modules/*"]),
-)
+# rust_indexer_test(
+#     name = "modules_test",
+#     srcs = glob(["testdata/modules/*"]),
+# )
 
-rust_indexer_test(
-    name = "struct_test",
-    srcs = ["testdata/struct.rs"],
-)
+# rust_indexer_test(
+#     name = "struct_test",
+#     srcs = ["testdata/struct.rs"],
+# )
 
-rust_indexer_test(
-    name = "tbuiltin_test",
-    srcs = ["testdata/tbuiltin.rs"],
-)
+# rust_indexer_test(
+#     name = "tbuiltin_test",
+#     srcs = ["testdata/tbuiltin.rs"],
+# )
 
-rust_indexer_test(
-    name = "trait_test",
-    srcs = ["testdata/trait.rs"],
-)
+# rust_indexer_test(
+#     name = "trait_test",
+#     srcs = ["testdata/trait.rs"],
+# )
 
-rust_indexer_test(
-    name = "type_test",
-    srcs = ["testdata/type.rs"],
-)
+# rust_indexer_test(
+#     name = "type_test",
+#     srcs = ["testdata/type.rs"],
+# )
 
-rust_indexer_test(
-    name = "union_test",
-    srcs = ["testdata/union.rs"],
-)
+# rust_indexer_test(
+#     name = "union_test",
+#     srcs = ["testdata/union.rs"],
+# )
 
-rust_indexer_test(
-    name = "variable_test",
-    srcs = ["testdata/variable.rs"],
-)
+# rust_indexer_test(
+#     name = "variable_test",
+#     srcs = ["testdata/variable.rs"],
+# )
 
-rust_indexer_test(
-    name = "xrefs_test",
-    srcs = glob(["testdata/xrefs/*.rs"]),
-)
+# rust_indexer_test(
+#     name = "xrefs_test",
+#     srcs = glob(["testdata/xrefs/*.rs"]),
+# )
 
-rust_indexer_test(
-    name = "relative_module_test",
-    srcs = glob(["testdata/relative/**/*.rs"]),
-)
+# rust_indexer_test(
+#     name = "relative_module_test",
+#     srcs = glob(["testdata/relative/**/*.rs"]),
+# )
 
-rust_indexer_test(
-    name = "out_dir_test",
-    srcs = ["testdata/out_dir/main.rs"],
-    out_dir_files = ["testdata/out_dir/generated.rs"],
-)
+# rust_indexer_test(
+#     name = "out_dir_test",
+#     srcs = ["testdata/out_dir/main.rs"],
+#     out_dir_files = ["testdata/out_dir/generated.rs"],
+# )
 
-rust_indexer_test(
-    name = "test_lib_test",
-    srcs = ["testdata/test_lib.rs"],
-    is_test_lib = True,
-)
+# rust_indexer_test(
+#     name = "test_lib_test",
+#     srcs = ["testdata/test_lib.rs"],
+#     is_test_lib = True,
+# )

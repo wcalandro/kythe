@@ -105,3 +105,68 @@ impl VNameRule {
         vname
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_raw_rule_to_vname_rule() {
+        let raw_rule = RawRule {
+            pattern: r"(Test\d+)+".to_string(),
+            vname: RawRulePatterns {
+                corpus: Some("corpus".to_string()),
+                root: Some("@1@@2@".to_string()),
+                path: None,
+            },
+        };
+        let vname_rule = raw_rule.process();
+        assert_eq!(vname_rule.corpus_pattern, Some("corpus".to_string()));
+        assert_eq!(vname_rule.root_pattern, Some("${1}${2}".to_string()));
+        assert_eq!(vname_rule.path_pattern, None);
+    }
+
+    #[test]
+    fn test_vname_translation() {
+        let mut vname_rule_1 = VNameRule {
+            pattern: regex::Regex::new("external/([^/]+)/(.*\\.rs)$")
+                .expect("Couldn't parse test regex"),
+            corpus_pattern: Some("rust_extractor".to_string()),
+            root_pattern: Some("${1}".to_string()),
+            path_pattern: Some("${2}".to_string()),
+        };
+        let path = "external/rust_test/vname_rules/lib.rs";
+        assert!(vname_rule_1.matches(path));
+
+        let vname_1 = vname_rule_1.produce_vname(path, "");
+        assert_eq!(vname_1.get_corpus(), "rust_extractor".to_string());
+        assert_eq!(vname_1.get_root(), "rust_test".to_string());
+        assert_eq!(vname_1.get_path(), "vname_rules/lib.rs".to_string());
+
+        let mut vname_rule_2 = VNameRule {
+            pattern: regex::Regex::new("external/([^/]+)/(.*\\.rs)$")
+                .expect("Couldn't parse test regex"),
+            corpus_pattern: None,
+            root_pattern: Some("${1}".to_string()),
+            path_pattern: Some("${2}".to_string()),
+        };
+        let path = "external/rust_test/vname_rules/lib.rs";
+        assert!(vname_rule_2.matches(path));
+
+        let vname_2 = vname_rule_2.produce_vname(path, "default");
+        assert_eq!(vname_2.get_corpus(), "default".to_string());
+        assert_eq!(vname_2.get_root(), "rust_test".to_string());
+        assert_eq!(vname_2.get_path(), "vname_rules/lib.rs".to_string());
+    }
+
+    #[test]
+    fn test_patterns_are_anchored() {
+        let rule = RawRule {
+            pattern: "/absolute/path".to_string(),
+            vname: RawRulePatterns { corpus: None, root: None, path: None },
+        }
+        .process();
+        assert!(rule.matches("/absolute/path"));
+        assert!(!rule.matches("sub/absolute/path"));
+    }
+}

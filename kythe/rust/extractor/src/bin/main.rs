@@ -69,6 +69,12 @@ fn main() -> Result<()> {
         let glob_pattern = format!("{out_dir}/**/*");
         for path in glob(&glob_pattern).unwrap().flatten() {
             if path.is_file() {
+                if let Some(extension) = path.extension() {
+                    // Has to be nested if because of the `if let`
+                    if extension.eq("rmeta") {
+                        continue;
+                    }
+                }
                 out_dir_inputs.push(path);
             }
         }

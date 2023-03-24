@@ -12,18 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use colored::*;
+#[macro_use]
+extern crate quick_error;
 
-static NUM: i32 = 1;
-
-fn main() {
-    hello_world();
-    let mut x = 1;
-    x = 2;
-    let z = math::add(x, y);
-}
-
-/// This prints "Hello, World!" in blue and green
-fn hello_world() {
-    println!("{} {}", "Hello,".blue(), "World!".green());
-}
+pub mod error;
+pub mod indexer;
+pub mod providers;
+pub mod proxyrequests;
+pub mod writer;
