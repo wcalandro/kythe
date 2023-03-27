@@ -106,6 +106,11 @@ rust_indexer_test(
 )
 
 rust_indexer_test(
+    name = "documentation_test",
+    srcs = ["testdata/docs.rs"],
+)
+
+rust_indexer_test(
     name = "field_test",
     srcs = ["testdata/fields.rs"],
 )

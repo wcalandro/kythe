@@ -20,8 +20,8 @@ use super::entries::EntryEmitter;
 
 use analysis_rust_proto::CompilationUnit;
 use ra_ap_hir::{
-    Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasSource, InFile,
-    Module, ModuleSource, Semantics, StructKind, VariantDef,
+    Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasAttrs, HasSource,
+    InFile, Module, ModuleSource, Semantics, StructKind, VariantDef,
 };
 use ra_ap_ide::{AnalysisHost, Change, RootDatabase, SourceRoot};
 use ra_ap_ide_db::defs::{Definition, IdentClass};
@@ -390,6 +390,17 @@ impl<'a> UnitAnalyzer<'a> {
                 // for the time being
                 _ => {}
             };
+            if let Some(doc) = module.docs(db) {
+                let mut doc_vname = def_vname.clone();
+                doc_vname.set_signature(format!("{}::(DOCUMENTATION)", def_vname.get_signature()));
+                self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
+                self.emitter.emit_fact(
+                    &doc_vname,
+                    "/kythe/text",
+                    doc.as_str().as_bytes().to_vec(),
+                )?;
+                self.emitter.emit_edge(&doc_vname, &def_vname, "/kythe/edge/documents")?;
+            }
         }
 
         Ok(())
@@ -805,6 +816,30 @@ impl<'a> UnitAnalyzer<'a> {
             // Try to get a parent VName and emit a childof edge
             if let Some(parent_vname) = self.get_parent_vname(db, &def) {
                 self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
+            }
+            // See if there is any documentation
+            let doc = match def {
+                Definition::Adt(adt) => adt.docs(db),
+                Definition::Const(const_) => const_.docs(db),
+                Definition::Field(field) => field.docs(db),
+                Definition::Function(function) => function.docs(db),
+                Definition::Macro(macro_) => macro_.docs(db),
+                Definition::Static(static_) => static_.docs(db),
+                Definition::Trait(trait_) => trait_.docs(db),
+                Definition::TypeAlias(talias) => talias.docs(db),
+                Definition::Variant(variant) => variant.docs(db),
+                _ => None,
+            };
+            if let Some(doc) = doc {
+                let mut doc_vname = def_vname.clone();
+                doc_vname.set_signature(format!("{}::(DOCUMENTATION)", def_vname.get_signature()));
+                self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
+                self.emitter.emit_fact(
+                    &doc_vname,
+                    "/kythe/text",
+                    doc.as_str().as_bytes().to_vec(),
+                )?;
+                self.emitter.emit_edge(&doc_vname, &def_vname, "/kythe/edge/documents")?;
             }
         } else {
             // This is a reference, so emit the corresponding edge
