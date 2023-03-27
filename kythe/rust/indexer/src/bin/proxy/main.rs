@@ -11,42 +11,23 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-extern crate kythe_rust_indexer;
 use kythe_rust_indexer::{indexer::KytheIndexer, providers::*, proxyrequests, writer::ProxyWriter};
 
 use analysis_rust_proto::*;
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
 use serde_json::Value;
 use std::io::{self, Write};
-
-#[derive(Parser)]
-#[clap(author = "The Kythe Authors")]
-#[clap(about = "Kythe Rust Proxy Indexer", long_about = None)]
-#[clap(rename_all = "snake_case")]
-struct Args {
-    /// Disables emitting cross references to the standard library
-    #[clap(long, action)]
-    no_emit_std_lib: bool,
-
-    /// Emits built-in types in the "std" corpus
-    #[clap(long, action)]
-    tbuiltin_std_corpus: bool,
-}
 
 fn main() -> Result<()> {
     let mut file_provider = ProxyFileProvider::new();
     let mut kythe_writer = ProxyWriter::default();
     let mut indexer = KytheIndexer::new(&mut kythe_writer);
 
-    let args = Args::parse();
-    let emit_std_lib = !args.no_emit_std_lib;
-
     // Request and process
     loop {
         let unit = request_compilation_unit()?;
         // Index the CompilationUnit and let the proxy know we are done
-        match indexer.index_cu(&unit, &mut file_provider, emit_std_lib, args.tbuiltin_std_corpus) {
+        match indexer.index_cu(&unit, &mut file_provider) {
             Ok(_) => send_done(true, String::new())?,
             Err(e) => send_done(false, e.to_string())?,
         }

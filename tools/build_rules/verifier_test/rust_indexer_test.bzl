@@ -1,4 +1,4 @@
-# Copyright 2020 The Kythe Authors. All rights reserved.
+# Copyright 2023 The Kythe Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ through the verifier
 """
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
-load("//tools/cpp:toolchain_utils.bzl", "find_cpp_toolchain", "use_cpp_toolchain")
 load(
     "//tools/build_rules/verifier_test:verifier_test.bzl",
     "KytheEntries",
@@ -28,22 +27,6 @@ load(
 )
 
 def _rust_extract_impl(ctx):
-    # Get the path for the system's linker
-    cc_toolchain = find_cpp_toolchain(ctx)
-    cc_features = cc_common.configure_features(
-        ctx = ctx,
-        cc_toolchain = cc_toolchain,
-    )
-    linker_path = cc_common.get_tool_for_action(
-        feature_configuration = cc_features,
-        action_name = "c++-link-executable",
-    )
-
-    # Rust toolchain
-    rust_toolchain = ctx.toolchains["@rules_rust//rust:toolchain"]
-    rustc_lib = rust_toolchain.rustc_lib.to_list()
-    rust_std = rust_toolchain.rust_std.to_list()
-
     # Copy out_dir_files to out_dir
     all_out_dir_files = []
     for f in ctx.files.out_dir_files:
@@ -56,42 +39,51 @@ def _rust_extract_impl(ctx):
             command = "cp $1 $2",
         )
 
-    # Generate extra_action file to be used by the extractor
-    extra_action_file = ctx.actions.declare_file(ctx.label.name + ".xa")
-    xa_maker = ctx.executable._extra_action
-    args = [
-        "--src_files=%s" % ",".join([f.path for f in ctx.files.srcs]),
-        "--output=%s" % extra_action_file.path,
-        "--owner=%s" % ctx.label.name,
-        "--crate_name=%s" % ctx.attr.crate_name,
-        "--sysroot=%s" % paths.dirname(rust_std[0].path),
-        "--linker=%s" % linker_path,
-    ]
+    # Determine the crate root
+    crate_root_path = ""
+    if len(ctx.files.srcs) == 1:
+        crate_root_path = ctx.files.srcs[0].path
+    else:
+        for src in ctx.files.srcs:
+            if paths.basename(src.path) == "main.rs":
+                crate_root_path = src.path
+                break
+        if crate_root_path == "":
+            fail("Could not determine root path for crate")
 
-    if ctx.attr.is_test_lib:
-        args.append("--test_lib")
+    # Generate extraction info file to be used by the extractor
+    crate = dict()
+    crate["name"] = ctx.attr.crate_name
+    crate["root"] = crate_root_path
+    crate["edition"] = "2021"
+    crate["target"] = ctx.toolchains[Label("@rules_rust//rust:toolchain")].target_triple.str
+    crate["crate_type"] = "bin"
+    crate["is_external"] = False
+    crate["deps"] = []
+    crate["cfg"] = ["test", "debug_assertions"]
+    crate["relevant_srcs"] = [src.path for src in ctx.files.srcs]
 
-    # If there were out_dir_files, set --out_dir_env
-    if len(all_out_dir_files) != 0:
-        args.append("--out_dir_env=${pwd}/%s" % paths.dirname(all_out_dir_files[0].path))
+    # TODO: Set up out_dir_path
+    crate["out_dir_path"] = ""
 
-    ctx.actions.run(
-        executable = xa_maker,
-        arguments = args,
-        outputs = [extra_action_file],
+    extraction_info_file = ctx.actions.declare_file(ctx.label.name + ".rust_extraction_info.json")
+    ctx.actions.write(
+        output = extraction_info_file,
+        content = json.encode(crate),
     )
 
     # Generate the kzip
+    runfiles = ctx.files.srcs + [extraction_info_file, ctx.file._vnames_config_file]
     output = ctx.outputs.kzip
     ctx.actions.run(
         mnemonic = "RustExtract",
         executable = ctx.executable._extractor,
         arguments = [
-            "--extra_action=%s" % extra_action_file.path,
+            "--extraction_info=%s" % extraction_info_file.path,
             "--output=%s" % output.path,
             "--vnames_config=%s" % ctx.file._vnames_config_file.path,
         ],
-        inputs = [extra_action_file, ctx.file._vnames_config_file] + rustc_lib + rust_std + ctx.files.srcs + all_out_dir_files,
+        inputs = runfiles,
         outputs = [output],
         env = {
             "KYTHE_CORPUS": "test_corpus",
@@ -106,11 +98,6 @@ def _rust_extract_impl(ctx):
 rust_extract = rule(
     _rust_extract_impl,
     attrs = {
-        # Additional data files to include in each compilation.
-        "data": attr.label_list(
-            allow_empty = True,
-            allow_files = True,
-        ),
         "srcs": attr.label_list(
             mandatory = True,
             allow_files = [".rs"],
@@ -119,20 +106,12 @@ rust_extract = rule(
             mandatory = True,
             allow_files = [".rs"],
         ),
-        "is_test_lib": attr.bool(
-            mandatory = True,
-        ),
         "crate_name": attr.string(
             default = "test_crate",
         ),
         "_extractor": attr.label(
-            default = Label("//kythe/rust/extractor:extractor_script"),
+            default = Label("//kythe/rust/extractor"),
             allow_files = True,
-            executable = True,
-            cfg = "exec",
-        ),
-        "_extra_action": attr.label(
-            default = Label("//tools/rust/extra_action"),
             executable = True,
             cfg = "exec",
         ),
@@ -140,16 +119,9 @@ rust_extract = rule(
             default = Label("//external:vnames_config"),
             allow_single_file = True,
         ),
-        "_cc_toolchain": attr.label(
-            default = Label("@bazel_tools//tools/cpp:current_cc_toolchain"),
-            allow_files = True,
-        ),
     },
     outputs = {"kzip": "%{name}.kzip"},
-    fragments = ["cpp"],
-    toolchains = use_cpp_toolchain() + [
-        "@rules_rust//rust:toolchain",
-    ],
+    toolchains = [str(Label("@rules_rust//rust:toolchain"))],
 )
 
 def _rust_entries_impl(ctx):
@@ -212,7 +184,6 @@ def _rust_indexer(
         name,
         srcs,
         out_dir_files = [],
-        is_test_lib = False,
         has_marked_source = False,
         emit_anchor_scopes = False):
     kzip = name + "_units"
@@ -220,7 +191,6 @@ def _rust_indexer(
         name = kzip,
         srcs = srcs,
         out_dir_files = out_dir_files,
-        is_test_lib = is_test_lib,
     )
     entries = name + "_entries"
     rust_entries(
@@ -236,7 +206,6 @@ def rust_indexer_test(
         name,
         srcs,
         out_dir_files = [],
-        is_test_lib = False,
         size = None,
         tags = None,
         log_entries = False,
@@ -264,7 +233,6 @@ def rust_indexer_test(
         name = name,
         srcs = srcs,
         out_dir_files = out_dir_files,
-        is_test_lib = is_test_lib,
         has_marked_source = has_marked_source,
         emit_anchor_scopes = emit_anchor_scopes,
     )

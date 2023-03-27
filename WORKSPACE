@@ -109,9 +109,6 @@ crates_repository(
             features = ["derive"],
             version = "=3.2.23",
         ),
-        "colored": crate.spec(
-            version = "2.0.0",
-        ),
         "glob": crate.spec(
             version = "0.3.0",
         ),
@@ -123,9 +120,6 @@ crates_repository(
         ),
         "quick-error": crate.spec(
             version = "2.0.1",
-        ),
-        "path-clean": crate.spec(
-            version = "0.1.0",
         ),
         "ra_ap_hir": crate.spec(
             version = rust_analyzer_version,

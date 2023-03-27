@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-extern crate kythe_rust_indexer;
 use kythe_rust_indexer::{indexer::KytheIndexer, providers::*, writer::CodedOutputStreamWriter};
 
 use anyhow::{Context, Result};
@@ -27,19 +26,10 @@ struct Args {
     /// The path to the kzip to be indexed
     #[clap(value_parser)]
     kzip_path: PathBuf,
-
-    /// Disables emitting cross references to the standard library
-    #[clap(long, action)]
-    no_emit_std_lib: bool,
-
-    /// Emits built-in types in the "std" corpus
-    #[clap(long, action)]
-    tbuiltin_std_corpus: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let emit_std_lib = !args.no_emit_std_lib;
 
     // Get kzip path from argument and use it to create a KzipFileProvider
     // Unwrap is safe because the parameter is required
@@ -56,7 +46,7 @@ fn main() -> Result<()> {
     let mut indexer = KytheIndexer::new(&mut writer);
 
     for unit in compilation_units {
-        indexer.index_cu(&unit, &mut kzip_provider, emit_std_lib, args.tbuiltin_std_corpus)?;
+        indexer.index_cu(&unit, &mut kzip_provider)?;
     }
     Ok(())
 }

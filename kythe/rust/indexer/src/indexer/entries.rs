@@ -13,11 +13,16 @@
 // limitations under the License.
 
 use crate::error::KytheError;
-use crate::indexer::analyzers::ByteSpan;
 use crate::writer::KytheWriter;
 
 use sha2::{Digest, Sha256};
 use storage_rust_proto::*;
+
+/// Represents a span within a file based on byte offets
+pub struct ByteSpan {
+    pub start_byte: u32,
+    pub end_byte: u32,
+}
 
 /// A utility data structure for writing nodes and edges to a KytheWriter
 pub struct EntryEmitter<'a> {
@@ -98,19 +103,16 @@ impl<'a> EntryEmitter<'a> {
         &mut self,
         anchor_vname: &VName,
         target_vname: &VName,
-        byte_span: ByteSpan,
+        byte_start: u32,
+        byte_end: u32,
     ) -> Result<(), KytheError> {
         self.emit_fact(anchor_vname, "/kythe/node/kind", b"anchor".to_vec())?;
         self.emit_fact(
             anchor_vname,
             "/kythe/loc/start",
-            byte_span.start_byte.to_string().into_bytes().to_vec(),
+            byte_start.to_string().into_bytes().to_vec(),
         )?;
-        self.emit_fact(
-            anchor_vname,
-            "/kythe/loc/end",
-            byte_span.end_byte.to_string().into_bytes().to_vec(),
-        )?;
+        self.emit_fact(anchor_vname, "/kythe/loc/end", byte_end.to_string().into_bytes().to_vec())?;
         self.emit_edge(anchor_vname, target_vname, "/kythe/edge/ref")
     }
 

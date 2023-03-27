@@ -17,6 +17,10 @@ use protobuf::error::ProtobufError;
 quick_error! {
     #[derive(Debug)]
     pub enum KytheError {
+        /// The KytheIndexer encountered an error that should produce a diagnostic node
+        DiagnosticError(err: String) {
+            display("A diagnostic error was produced during indexing: {}", err)
+        }
         /// The FileProvider failed to find the file
         FileNotFoundError(name: String) {
             display("The requested file could not be found: {}", name)
@@ -26,9 +30,8 @@ quick_error! {
             from()
             display("Failed to read contents of file: {}", err)
         }
-        // The KytheIndexer encountered an error
+        // The KytheIndexer encountered an unrecoverable error
         IndexerError(err: String) {
-            from()
             display("An error occurred while indexing: {}", err)
         }
         /// The KzipFileProvider couldn't read the provided file

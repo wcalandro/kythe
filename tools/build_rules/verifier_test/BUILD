@@ -58,12 +58,3 @@ bzl_library(
         "@bazel_skylib//lib:paths",
     ],
 )
-
-bzl_library(
-    name = "rust_indexer_test2_bzl",
-    srcs = ["rust_indexer_test2.bzl"],
-    deps = [
-        ":verifier_test_bzl",
-        "@bazel_skylib//lib:paths",
-    ],
-)

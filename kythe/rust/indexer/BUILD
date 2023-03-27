@@ -15,15 +15,43 @@ rust_library(
         "//kythe/proto:storage_rust_proto",
         "@crate_index//:base64",
         "@crate_index//:hex",
-        "@crate_index//:path-clean",
         "@crate_index//:protobuf",
         "@crate_index//:quick-error",
-        "@crate_index//:rls-analysis",
-        "@crate_index//:rls-data",
+        "@crate_index//:ra_ap_hir",
+        "@crate_index//:ra_ap_ide",
+        "@crate_index//:ra_ap_ide_db",
+        "@crate_index//:ra_ap_paths",
+        "@crate_index//:ra_ap_project_model",
+        "@crate_index//:ra_ap_syntax",
+        "@crate_index//:ra_ap_vfs",
+        "@crate_index//:rustc-hash",
         "@crate_index//:serde",
         "@crate_index//:serde_json",
         "@crate_index//:sha2",
         "@crate_index//:zip",
+    ],
+)
+
+rust_test(
+    name = "kythe_rust_indexer_tests",
+    crate = ":kythe_rust_indexer",
+)
+
+rust_test(
+    name = "integration_tests",
+    srcs = glob(["tests/*.rs"]),
+    data = [
+        "tests/testkzip.kzip",
+    ],
+    edition = "2021",
+    deps = [
+        ":kythe_rust_indexer",
+        "//kythe/proto:analysis_rust_proto",
+        "//kythe/proto:storage_rust_proto",
+        "@crate_index//:hex",
+        "@crate_index//:protobuf",
+        "@crate_index//:sha2",
+        "@rules_rust//tools/runfiles",
     ],
 )
 
@@ -38,7 +66,6 @@ rust_binary(
         ":kythe_rust_indexer",
         "@crate_index//:anyhow",
         "@crate_index//:clap",
-        "@crate_index//:protobuf",
     ],
 )
 
@@ -54,33 +81,8 @@ rust_binary(
         "//kythe/proto:analysis_rust_proto",
         "@crate_index//:anyhow",
         "@crate_index//:base64",
-        "@crate_index//:clap",
         "@crate_index//:protobuf",
         "@crate_index//:serde_json",
-    ],
-)
-
-rust_test(
-    name = "inline_tests",
-    crate = ":kythe_rust_indexer",
-)
-
-rust_test(
-    name = "integration_tests",
-    srcs = glob(["tests/*.rs"]),
-    data = [
-        "tests/testkzip.kzip",
-    ],
-    edition = "2021",
-    deps = [
-        ":inline_tests",
-        ":kythe_rust_indexer",
-        "//kythe/proto:analysis_rust_proto",
-        "//kythe/proto:storage_rust_proto",
-        "@crate_index//:hex",
-        "@crate_index//:protobuf",
-        "@crate_index//:sha2",
-        "@rules_rust//tools/runfiles",
     ],
 )
 
@@ -93,79 +95,62 @@ rust_clippy(
     ],
 )
 
-# rust_indexer_test(
-#     name = "anchors_test",
-#     srcs = ["testdata/anchors.rs"],
-# )
+rust_indexer_test(
+    name = "adt_test",
+    srcs = ["testdata/adt.rs"],
+)
 
-# rust_indexer_test(
-#     name = "comment_test",
-#     srcs = ["testdata/comment.rs"],
-# )
+rust_indexer_test(
+    name = "const_test",
+    srcs = ["testdata/const.rs"],
+)
 
-# rust_indexer_test(
-#     name = "enum_test",
-#     srcs = ["testdata/enum.rs"],
-# )
+rust_indexer_test(
+    name = "field_test",
+    srcs = ["testdata/fields.rs"],
+)
 
-# rust_indexer_test(
-#     name = "function_test",
-#     srcs = ["testdata/function.rs"],
-# )
+rust_indexer_test(
+    name = "function_test",
+    srcs = ["testdata/functions.rs"],
+)
 
-# rust_indexer_test(
-#     name = "modules_test",
-#     srcs = glob(["testdata/modules/*"]),
-# )
+rust_indexer_test(
+    name = "macro_test",
+    srcs = ["testdata/macros.rs"],
+)
 
-# rust_indexer_test(
-#     name = "struct_test",
-#     srcs = ["testdata/struct.rs"],
-# )
+rust_indexer_test(
+    name = "label_test",
+    srcs = ["testdata/labels.rs"],
+)
 
-# rust_indexer_test(
-#     name = "tbuiltin_test",
-#     srcs = ["testdata/tbuiltin.rs"],
-# )
+rust_indexer_test(
+    name = "local_test",
+    srcs = ["testdata/locals.rs"],
+)
 
-# rust_indexer_test(
-#     name = "trait_test",
-#     srcs = ["testdata/trait.rs"],
-# )
+rust_indexer_test(
+    name = "modules_test",
+    srcs = glob(["testdata/modules/*"]),
+)
 
-# rust_indexer_test(
-#     name = "type_test",
-#     srcs = ["testdata/type.rs"],
-# )
+rust_indexer_test(
+    name = "static_test",
+    srcs = ["testdata/static.rs"],
+)
 
-# rust_indexer_test(
-#     name = "union_test",
-#     srcs = ["testdata/union.rs"],
-# )
+rust_indexer_test(
+    name = "talias_test",
+    srcs = ["testdata/talias.rs"],
+)
 
-# rust_indexer_test(
-#     name = "variable_test",
-#     srcs = ["testdata/variable.rs"],
-# )
+rust_indexer_test(
+    name = "trait_test",
+    srcs = ["testdata/traits.rs"],
+)
 
-# rust_indexer_test(
-#     name = "xrefs_test",
-#     srcs = glob(["testdata/xrefs/*.rs"]),
-# )
-
-# rust_indexer_test(
-#     name = "relative_module_test",
-#     srcs = glob(["testdata/relative/**/*.rs"]),
-# )
-
-# rust_indexer_test(
-#     name = "out_dir_test",
-#     srcs = ["testdata/out_dir/main.rs"],
-#     out_dir_files = ["testdata/out_dir/generated.rs"],
-# )
-
-# rust_indexer_test(
-#     name = "test_lib_test",
-#     srcs = ["testdata/test_lib.rs"],
-#     is_test_lib = True,
-# )
+rust_indexer_test(
+    name = "variant_test",
+    srcs = ["testdata/variant.rs"],
+)

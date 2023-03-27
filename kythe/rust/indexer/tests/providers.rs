@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-extern crate kythe_rust_indexer;
 use kythe_rust_indexer::{
     error::KytheError,
     providers::{FileProvider, KzipFileProvider},
 };
-extern crate runfiles;
 use runfiles::Runfiles;
 use std::fs::File;
 use std::path::PathBuf;

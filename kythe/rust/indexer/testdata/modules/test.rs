@@ -7,8 +7,6 @@
 //- TestMod.complete definition
 //- TestMod childof ImplicitMod
 
-//- @_nothing defines/binding NothingFn
-//- NothingFn childof TestMod
-fn _nothing() {
-    ()
-}
+//- @crate ref ImplicitMod
+//- @explicit_module ref ExplicitMod
+use crate::explicit_module;

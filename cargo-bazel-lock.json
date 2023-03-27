@@ -1,5 +1,5 @@
 {
-  "checksum": "3e7ba283de22e40387b64ba8ec6295b30817c4ad516499aec33d95088a2ac2f6",
+  "checksum": "76165d4585aa749ccdf9bb3a222b03d74287f5f2677d107e6d1977cc4d2abe09",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -1293,56 +1293,6 @@
       },
       "license": "MIT OR Apache-2.0"
     },
-    "colored 2.0.0": {
-      "name": "colored",
-      "version": "2.0.0",
-      "repository": {
-        "Http": {
-          "url": "https://crates.io/api/v1/crates/colored/2.0.0/download",
-          "sha256": "b3616f750b84d8f0de8a58bda93e08e2a81ad3f523089b05f1dffecab48c6cbd"
-        }
-      },
-      "targets": [
-        {
-          "Library": {
-            "crate_name": "colored",
-            "crate_root": "src/lib.rs",
-            "srcs": [
-              "**/*.rs"
-            ]
-          }
-        }
-      ],
-      "library_target_name": "colored",
-      "common_attrs": {
-        "compile_data_glob": [
-          "**"
-        ],
-        "deps": {
-          "common": [
-            {
-              "id": "atty 0.2.14",
-              "target": "atty"
-            },
-            {
-              "id": "lazy_static 1.4.0",
-              "target": "lazy_static"
-            }
-          ],
-          "selects": {
-            "cfg(windows)": [
-              {
-                "id": "winapi 0.3.9",
-                "target": "winapi"
-              }
-            ]
-          }
-        },
-        "edition": "2015",
-        "version": "2.0.0"
-      },
-      "license": "MPL-2.0"
-    },
     "countme 3.0.1": {
       "name": "countme",
       "version": "3.0.1",
@@ -2061,10 +2011,6 @@
               "target": "clap"
             },
             {
-              "id": "colored 2.0.0",
-              "target": "colored"
-            },
-            {
               "id": "glob 0.3.1",
               "target": "glob"
             },
@@ -2075,10 +2021,6 @@
             {
               "id": "lazy_static 1.4.0",
               "target": "lazy_static"
-            },
-            {
-              "id": "path-clean 0.1.0",
-              "target": "path_clean"
             },
             {
               "id": "protobuf 2.27.1",
@@ -4143,36 +4085,6 @@
         "data_glob": [
           "**"
         ]
-      },
-      "license": "MIT OR Apache-2.0"
-    },
-    "path-clean 0.1.0": {
-      "name": "path-clean",
-      "version": "0.1.0",
-      "repository": {
-        "Http": {
-          "url": "https://crates.io/api/v1/crates/path-clean/0.1.0/download",
-          "sha256": "ecba01bf2678719532c5e3059e0b5f0811273d94b397088b82e3bd0a78c78fdd"
-        }
-      },
-      "targets": [
-        {
-          "Library": {
-            "crate_name": "path_clean",
-            "crate_root": "src/lib.rs",
-            "srcs": [
-              "**/*.rs"
-            ]
-          }
-        }
-      ],
-      "library_target_name": "path_clean",
-      "common_attrs": {
-        "compile_data_glob": [
-          "**"
-        ],
-        "edition": "2015",
-        "version": "0.1.0"
       },
       "license": "MIT OR Apache-2.0"
     },

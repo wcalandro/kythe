@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-extern crate kythe_rust_indexer;
-extern crate runfiles;
-extern crate storage_rust_proto;
-
 pub mod array_writer;
 mod indexer_entries;
 mod providers;

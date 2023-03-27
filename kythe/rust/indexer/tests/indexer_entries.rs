@@ -14,7 +14,6 @@
 
 use crate::array_writer::ArrayWriter;
 
-extern crate kythe_rust_indexer;
 use kythe_rust_indexer::error::KytheError;
 use kythe_rust_indexer::indexer::entries::EntryEmitter;
 use sha2::{Digest, Sha256};
