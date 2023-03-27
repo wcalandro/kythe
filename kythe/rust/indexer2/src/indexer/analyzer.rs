@@ -20,9 +20,8 @@ use super::entries::EntryEmitter;
 
 use analysis_rust_proto::CompilationUnit;
 use ra_ap_hir::{
-    Adt, AsAssocItem, AssocItemContainer, Const, Crate, DefWithBody, Field, FieldSource, Function,
-    HasSource, InFile, Label, Local, Macro, Module, ModuleSource, Semantics, Static, StructKind,
-    Trait, TypeAlias, Variant, VariantDef,
+    Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasSource, InFile,
+    Module, ModuleSource, Semantics, StructKind, VariantDef,
 };
 use ra_ap_ide::{AnalysisHost, Change, RootDatabase, SourceRoot};
 use ra_ap_ide_db::defs::{Definition, IdentClass};
@@ -30,7 +29,7 @@ use ra_ap_paths::AbsPath;
 use ra_ap_project_model::{ProjectJson, ProjectJsonData, ProjectWorkspace};
 use ra_ap_syntax::{
     ast::{AstNode, HasName},
-    NodeOrToken, SyntaxKind, SyntaxToken, T,
+    NodeOrToken, SyntaxKind, SyntaxToken, TextRange, TextSize, T,
 };
 use ra_ap_vfs::{file_set::FileSetConfigBuilder, Vfs, VfsPath};
 use rustc_hash::FxHashMap;
@@ -39,6 +38,11 @@ use storage_rust_proto::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+
+struct FileRange {
+    pub file_id: u32,
+    pub text_range: TextRange,
+}
 
 /// A data structure to analyze and index CompilationUnit protobufs
 pub struct UnitAnalyzer<'a> {
@@ -154,7 +158,7 @@ impl<'a> UnitAnalyzer<'a> {
                 KytheError::IndexerError(format!("Failed to parse kythe-rust-project.json: {e}"))
             })?;
         let project_root = AbsPath::assert(Path::new("/kythe"));
-        let rust_project = ProjectJson::new(project_root.clone(), rust_project_data);
+        let rust_project = ProjectJson::new(project_root, rust_project_data);
 
         // Create the project workspace from the project
         let extra_env: FxHashMap<String, String> = FxHashMap::default();
@@ -193,7 +197,7 @@ impl<'a> UnitAnalyzer<'a> {
             // Add file information to relevant hashmaps
             self.file_id_to_path.insert(file_id.0, path.clone());
             let vname = required_input.get_v_name();
-            self.file_id_to_vname.insert(file_id.0, analysis_to_storage_vname(&vname));
+            self.file_id_to_vname.insert(file_id.0, analysis_to_storage_vname(vname));
 
             // Add the file id to the list of source file ids if this is a source file for
             // the root crate
@@ -207,7 +211,7 @@ impl<'a> UnitAnalyzer<'a> {
             &mut |_, _| Err("proc_macro_client is disabled".to_string()),
             &mut |path: &AbsPath| {
                 let source_path =
-                    path.strip_prefix(&project_root).unwrap().as_ref().display().to_string();
+                    path.strip_prefix(project_root).unwrap().as_ref().display().to_string();
                 if let Some(file_digest) = self.file_digests.get(&source_path) {
                     let file_bytes = self.provider.contents(&source_path, file_digest).ok();
                     let vfs_path = VfsPath::from(path.to_path_buf());
@@ -259,18 +263,17 @@ impl<'a> UnitAnalyzer<'a> {
         let db = analysis_host.raw_database();
 
         // Get the root module of the crate being analyzed
-        let root_module = get_root_module_in_file_ids(&db, &source_file_ids).ok_or_else(|| {
+        let root_module = get_root_module_in_file_ids(db, &source_file_ids).ok_or_else(|| {
             KytheError::IndexerError(
                 "Failed to find root module for crate being indexed".to_string(),
             )
         })?;
-        let krate = root_module.krate();
 
         // Emit nodes for all of the modules in the crate
-        self.emit_modules(&db, root_module.clone())?;
+        self.emit_modules(db, root_module)?;
 
         // Analyze all source files
-        let semantics = Semantics::new(db.clone());
+        let semantics = Semantics::new(db);
         for file_id in source_file_ids {
             let tokens = semantics
                 .parse(ra_ap_ide::FileId(file_id))
@@ -291,49 +294,13 @@ impl<'a> UnitAnalyzer<'a> {
                             | T![Self]
                     )
                 });
-
             for token in tokens {
-                if let Some(def) = get_definition(&semantics, token.clone()) {
-                    match def {
-                        Definition::Adt(adt) => {
-                            self.visit_adt_ident(&db, &semantics, file_id, &token, &adt)?
-                        }
-                        Definition::Const(konst) => {
-                            self.visit_const_ident(&db, &semantics, file_id, &token, &konst)?
-                        }
-                        Definition::Field(field) => {
-                            self.visit_field_ident(&db, file_id, &token, &field)?
-                        }
-                        Definition::Function(function) => {
-                            self.visit_function_ident(&db, &semantics, file_id, &token, &function)?
-                        }
-                        Definition::Label(label) => {
-                            self.visit_label_ident(&db, file_id, &token, &label)?
-                        }
-                        Definition::Local(local) => {
-                            self.visit_local_ident(&db, file_id, &token, &local)?
-                        }
-                        Definition::Macro(makro) => {
-                            self.visit_macro_ident(&db, &semantics, file_id, &token, &makro)?
-                        }
-                        Definition::Module(module) => {
-                            self.visit_module_ident(&db, file_id, &token, &module, &krate)?
-                        }
-                        Definition::Static(statik) => {
-                            self.visit_static_ident(&db, &semantics, file_id, &token, &statik)?
-                        }
-                        Definition::Trait(trate) => {
-                            self.visit_trait_ident(&db, &semantics, file_id, &token, &trate)?
-                        }
-                        Definition::TypeAlias(talias) => {
-                            self.visit_talias_ident(&db, &semantics, file_id, &token, &talias)?
-                        }
-                        Definition::Variant(variant) => {
-                            self.visit_variant_ident(&db, &semantics, file_id, &token, &variant)?
-                        }
-                        _ => {}
-                    }
-                }
+                match self.visit_token(&semantics, db, file_id, token) {
+                    // TODO: Emit diagnostic node
+                    Err(KytheError::DiagnosticError(_)) => {}
+                    Err(e) => return Err(e),
+                    _ => {}
+                };
             }
         }
 
@@ -372,9 +339,9 @@ impl<'a> UnitAnalyzer<'a> {
                 let name = module.name(db).unwrap().to_smol_str();
                 def_vname.set_signature(format!("{parent_signature}::{name}"));
             }
-            module_to_vname.insert(module.clone(), def_vname.clone());
+            module_to_vname.insert(module, def_vname.clone());
             self.def_to_signature
-                .insert(Definition::Module(module.clone()), def_vname.get_signature().to_string());
+                .insert(Definition::Module(module), def_vname.get_signature().to_string());
 
             // Emit the facts about the module
             self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"record".to_vec())?;
@@ -406,7 +373,7 @@ impl<'a> UnitAnalyzer<'a> {
                 }
                 ModuleSource::Module(module) => {
                     let name = module.name().unwrap();
-                    let range = InFile::new(def_source.file_id.clone(), name.syntax())
+                    let range = InFile::new(def_source.file_id, name.syntax())
                         .original_file_range_opt(db)
                         .map(|it| it.range);
                     if let Some(range) = range {
@@ -428,909 +395,23 @@ impl<'a> UnitAnalyzer<'a> {
         Ok(())
     }
 
-    /// Visits an identifier for a user-defined type. If this is the definition,
-    /// emits node information and an anchor. If this is a reference, emits
-    /// a reference.
-    fn visit_adt_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        adt: &Adt,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(adt.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent module
-        let mut module_vname = self.gen_base_vname();
-        let module_signature = self.get_signature(db, Definition::Module(adt.module(db)));
-        module_vname.set_signature(module_signature.clone());
-
-        // Create the VName for the const
-        let mut def_vname = self.gen_base_vname();
-        let signature = self.get_signature(db, Definition::Adt(adt.clone()));
-        def_vname.set_signature(signature);
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            let mut facts: Vec<(&str, &[u8])> = Vec::new();
-            match adt {
-                Adt::Enum(_) => {
-                    facts.push(("/kythe/node/kind", b"sum"));
-                    facts.push(("/kythe/complete", b"definition"));
-                    facts.push(("/kythe/subkind", b"enum"));
-                }
-                Adt::Struct(_) => {
-                    facts.push(("/kythe/node/kind", b"record"));
-                    facts.push(("/kythe/complete", b"definition"));
-                    facts.push(("/kythe/subkind", b"struct"));
-                }
-                Adt::Union(_) => {
-                    facts.push(("/kythe/node/kind", b"record"));
-                    facts.push(("/kythe/complete", b"definition"));
-                    facts.push(("/kythe/subkind", b"union"));
-                }
-            }
-            for (fact_name, fact_value) in facts.iter() {
-                self.emitter.emit_fact(&def_vname, fact_name, fact_value.to_vec())?;
-            }
-            self.emitter.emit_edge(&def_vname, &module_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a constant. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_const_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        const_: &Const,
-    ) -> Result<(), KytheError> {
-        // If the constant has no name, it cannot be referenced so we just don't do
-        // anything. We should probably still emit a definition but I won't deal with it
-        // for now.
-        if const_.name(db).is_none() {
-            return Ok(());
-        }
-
-        // Get the definition range
-        let source = semantics.source(const_.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the const
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Const(const_.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"constant".to_vec())?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-
-            // Try to generate a VName signature for the const's parent node
-            let parent_signature = if let Some(assoc_item) = const_.as_assoc_item(db) {
-                match assoc_item.container(db) {
-                    AssocItemContainer::Trait(t) => {
-                        Some(self.get_signature(db, Definition::Trait(t)))
-                    }
-                    AssocItemContainer::Impl(i) => {
-                        let self_type = i.self_ty(db);
-                        if let Some(adt) = self_type.as_adt() {
-                            Some(self.get_signature(db, Definition::Adt(adt)))
-                        } else {
-                            // TODO: Should probably emit a diagnostic node here
-                            None
-                        }
-                    }
-                }
-            } else {
-                Some(self.get_signature(db, Definition::Module(const_.module(db))))
-            };
-            // If we successfully generated a signature for the parent, emit a childof edge
-            // to it
-            if let Some(parent_signature) = parent_signature {
-                let mut parent_vname = self.gen_base_vname();
-                parent_vname.set_signature(parent_signature);
-                self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-            }
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a field. If this is the definition,
-    /// emits node information and an anchor. If this is a reference, emits
-    /// a reference.
-    fn visit_field_ident(
-        &mut self,
-        db: &RootDatabase,
-        file_id: u32,
-        token: &SyntaxToken,
-        field: &Field,
-    ) -> Result<(), KytheError> {
-        let field_name = field.name(db).to_smol_str();
-
-        // Get the definition range
-        let source = field.source(db).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = match source.value {
-            FieldSource::Named(f) => f.syntax().children().find(|it| it.kind() == SyntaxKind::NAME),
-            _ => None,
-        };
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent
-        let mut parent_vname = self.gen_base_vname();
-        let parent_def = field.parent_def(db);
-        let parent_signature = match parent_def {
-            VariantDef::Struct(s) => {
-                self.get_signature(db, Definition::Adt(Adt::Struct(s.clone())))
-            }
-            VariantDef::Union(u) => self.get_signature(db, Definition::Adt(Adt::Union(u.clone()))),
-            VariantDef::Variant(v) => self.get_signature(db, Definition::Variant(v.clone())),
-        };
-        parent_vname.set_signature(parent_signature.clone());
-
-        // Create the VName for the const
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(format!("{parent_signature}::FIELD({field_name}"));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"variable".to_vec())?;
-            self.emitter.emit_fact(&def_vname, "/kythe/complete", b"definition".to_vec())?;
-            self.emitter.emit_fact(&def_vname, "/kythe/subkind", b"field".to_vec())?;
-            self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a function. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_function_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        function: &Function,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(function.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the macro
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Function(function.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"function".to_vec())?;
-            let complete_value =
-                if function.has_body(db) { b"definition".to_vec() } else { b"incomplete".to_vec() };
-            self.emitter.emit_fact(&def_vname, "/kythe/complete", complete_value)?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-
-            // Try to generate a VName signature for the function's parent node
-            let parent_signature = if let Some(assoc_item) = function.as_assoc_item(db) {
-                match assoc_item.container(db) {
-                    AssocItemContainer::Trait(t) => {
-                        Some(self.get_signature(db, Definition::Trait(t)))
-                    }
-                    AssocItemContainer::Impl(i) => {
-                        let self_type = i.self_ty(db);
-                        if let Some(adt) = self_type.as_adt() {
-                            Some(self.get_signature(db, Definition::Adt(adt)))
-                        } else {
-                            // TODO: Should probably emit a diagnostic node here
-                            None
-                        }
-                    }
-                }
-            } else {
-                Some(self.get_signature(db, Definition::Module(function.module(db))))
-            };
-            // If we successfully generated a signature for the parent, emit a childof edge
-            // to it
-            if let Some(parent_signature) = parent_signature {
-                let mut parent_vname = self.gen_base_vname();
-                parent_vname.set_signature(parent_signature);
-                self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-            }
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a label. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_label_ident(
-        &mut self,
-        db: &RootDatabase,
-        file_id: u32,
-        token: &SyntaxToken,
-        label: &Label,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = label.source(db);
-        let source_file_id = source.file_id.original_file(db);
-        let name_node =
-            source.value.syntax().children().find(|it| it.kind() == SyntaxKind::LIFETIME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the label
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Label(label.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"variable".to_vec())?;
-            self.emitter.emit_fact(&def_vname, "/kythe/complete", b"definition".to_vec())?;
-            self.emitter.emit_fact(&def_vname, "/kythe/subkind", b"label".to_vec())?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-
-            // Create the parent VName and emit a childof node
-            let mut parent_vname = self.gen_base_vname();
-            let parent_signature = match label.parent(db) {
-                DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
-                DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
-                DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
-                DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-            };
-            parent_vname.set_signature(parent_signature);
-            self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a local. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_local_ident(
-        &mut self,
-        db: &RootDatabase,
-        file_id: u32,
-        token: &SyntaxToken,
-        local: &Local,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = local.source(db);
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = if source.value.is_left() {
-            source.value.unwrap_left().syntax().children().find(|it| it.kind() == SyntaxKind::NAME)
-        } else {
-            source.value.unwrap_right().syntax().children().find(|it| it.kind() == SyntaxKind::NAME)
-        };
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the label
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Local(local.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"variable".to_vec())?;
-            // TODO: Determine whether this is a declaration or a definition
-            self.emitter.emit_fact(&def_vname, "/kythe/subkind", b"local".to_vec())?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-
-            // Create the parent VName and emit a childof node
-            let mut parent_vname = self.gen_base_vname();
-            let parent_signature = match local.parent(db) {
-                DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
-                DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
-                DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
-                DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-            };
-            parent_vname.set_signature(parent_signature);
-            self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a macro. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_macro_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        makro: &Macro,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(makro.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent module
-        let mut module_vname = self.gen_base_vname();
-        module_vname.set_signature(self.get_signature(db, Definition::Module(makro.module(db))));
-
-        // Create the VName for the macro
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Macro(makro.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"macro".to_vec())?;
-            self.emitter.emit_edge(&def_vname, &module_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit an anchor and a ref/expands
-            self.emitter.emit_fact(&anchor_vname, "/kythe/node/kind", b"anchor".to_vec())?;
-            self.emitter.emit_fact(
-                &anchor_vname,
-                "/kythe/loc/start",
-                token_range_start.to_string().into_bytes().to_vec(),
-            )?;
-            self.emitter.emit_fact(
-                &anchor_vname,
-                "/kythe/loc/end",
-                token_range_end.to_string().into_bytes().to_vec(),
-            )?;
-            self.emitter.emit_edge(&anchor_vname, &def_vname, "/kythe/edge/ref/expands")?
-        }
-
-        Ok(())
-    }
-
-    /// Visits a module identifier in and, if it is a reference, emits the
-    /// information to the Kythe graph
-    fn visit_module_ident(
-        &mut self,
-        db: &RootDatabase,
-        file_id: u32,
-        token: &SyntaxToken,
-        module: &Module,
-        root_crate: &Crate,
-    ) -> Result<(), KytheError> {
-        let range = token.text_range();
-        let def_source = module.definition_source(db);
-
-        // If the module is part of the crate being analyzed and is declared as a `mod
-        // foo {}` rather than as a whole file, we need to determine if this
-        // identifier is a reference or if it is part of the module definition.
-        // Otherwise we know it's a reference.
-        let is_reference = if module.krate().eq(root_crate)
-            && matches!(def_source.value, ModuleSource::Module(_))
-        {
-            if let ModuleSource::Module(ast_module) = def_source.value {
-                let name = ast_module.name().unwrap();
-                let def_range = InFile::new(def_source.file_id.clone(), name.syntax())
-                    .original_file_range_opt(db)
-                    .map(|it| it.range);
-                if let Some(def_range) = def_range {
-                    // If the range matches, this identifier is part of the definition and is
-                    // therefore not a reference. Module definitions are emitted in `emit_modules`
-                    // so we return None.
-                    if range.eq(&def_range) { false } else { true }
-                } else {
-                    // TODO: Probably print something about not being able to find the range?
-                    false
-                }
-            } else {
-                // This is guaranteed to never happen since we already check if the value
-                // matches but the compiler complains if we don't use an `if let`.
-                false
-            }
-        } else {
-            true
-        };
-
-        if is_reference {
-            let start = u32::from(range.start());
-            let end = u32::from(range.end());
-
-            let mut target_vname = self.gen_base_vname();
-            target_vname.set_signature(self.get_signature(db, Definition::Module(module.clone())));
-
-            let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-            anchor_vname.set_language("rust".to_string());
-            anchor_vname.set_signature(format!("anchor_{start}_to_{end}"));
-
-            self.emitter.emit_reference(&anchor_vname, &target_vname, start, end)?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a static. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_static_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        statik: &Static,
-    ) -> Result<(), KytheError> {
-        let static_name = statik.name(db).to_smol_str();
-
-        // Get the definition range
-        let source = semantics.source(statik.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent module
-        let mut module_vname = self.gen_base_vname();
-        let module_signature = self.get_signature(db, Definition::Module(statik.module(db)));
-        module_vname.set_signature(module_signature.clone());
-
-        // Create the VName for the static
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(format!(
-            "{module_signature}::STATIC({static_name}|{}-{})",
-            u32::from(definition_range.start()),
-            u32::from(definition_range.end())
-        ));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"variable".to_vec())?;
-            if statik.value(db).is_some() {
-                self.emitter.emit_fact(&def_vname, "/kythe/complete", b"definition".to_vec())?;
-            } else {
-                self.emitter.emit_fact(&def_vname, "/kythe/complete", b"incomplete".to_vec())?;
-            }
-            self.emitter.emit_edge(&def_vname, &module_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a type alias. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_talias_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        talias: &TypeAlias,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(talias.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the static
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::TypeAlias(talias.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"talias".to_vec())?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-
-            // Try to generate a VName signature for the type alias' parent node
-            let parent_signature = if let Some(assoc_item) = talias.as_assoc_item(db) {
-                match assoc_item.container(db) {
-                    AssocItemContainer::Trait(t) => {
-                        Some(self.get_signature(db, Definition::Trait(t)))
-                    }
-                    AssocItemContainer::Impl(i) => {
-                        let self_type = i.self_ty(db);
-                        if let Some(adt) = self_type.as_adt() {
-                            Some(self.get_signature(db, Definition::Adt(adt)))
-                        } else {
-                            // TODO: Should probably emit a diagnostic node here
-                            None
-                        }
-                    }
-                }
-            } else {
-                Some(self.get_signature(db, Definition::Module(talias.module(db))))
-            };
-            // If we successfully generated a signature for the parent, emit a childof edge
-            // to it
-            if let Some(parent_signature) = parent_signature {
-                let mut parent_vname = self.gen_base_vname();
-                parent_vname.set_signature(parent_signature);
-                self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
-            }
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for a trait. If this is the definition, emits
-    /// node information and an anchor. If this is a reference, emits a
-    /// reference.
-    fn visit_trait_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        trate: &Trait,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(trate.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent module
-        let mut module_vname = self.gen_base_vname();
-        module_vname.set_signature(self.get_signature(db, Definition::Module(trate.module(db))));
-
-        // Create the VName for the trait
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Trait(trate.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"interface".to_vec())?;
-            self.emitter.emit_edge(&def_vname, &module_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Visits an identifier for an enum variant. If this is the definition,
-    /// emits node information and an anchor. If this is a reference, emits
-    /// a reference.
-    fn visit_variant_ident(
-        &mut self,
-        db: &RootDatabase,
-        semantics: &Semantics<'_, RootDatabase>,
-        file_id: u32,
-        token: &SyntaxToken,
-        variant: &Variant,
-    ) -> Result<(), KytheError> {
-        // Get the definition range
-        let source = semantics.source(variant.clone()).unwrap();
-        let source_file_id = source.file_id.original_file(db);
-        let name_node = source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME);
-        if name_node.is_none() {
-            // TODO: Emit some diagnostic about not being about to find the name
-            return Ok(());
-        }
-        let definition_range = name_node.unwrap().text_range();
-
-        // Create the VName for the parent enum
-        let mut enum_vname = self.gen_base_vname();
-        let enum_signature =
-            self.get_signature(db, Definition::Adt(Adt::Enum(variant.parent_enum(db))));
-        enum_vname.set_signature(enum_signature.clone());
-
-        // Create the VName for the const
-        let mut def_vname = self.gen_base_vname();
-        def_vname.set_signature(self.get_signature(db, Definition::Variant(variant.clone())));
-
-        // Create the VName for the anchor
-        let token_range = token.text_range();
-        let token_range_start = u32::from(token_range.start());
-        let token_range_end = u32::from(token_range.end());
-        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
-        anchor_vname.set_language("rust".to_string());
-        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
-
-        if file_id.eq(&source_file_id.0) && token_range.eq(&definition_range) {
-            // This is a definition, so emit the corresponding nodes
-            let mut facts: Vec<(&str, &[u8])> = Vec::new();
-            match variant.kind(db) {
-                StructKind::Tuple => {
-                    facts.push(("/kythe/node/kind", b"record"));
-                    facts.push(("/kythe/complete", b"definition"));
-                    facts.push(("/kythe/subkind", b"tuplevariant"));
-                }
-                StructKind::Record => {
-                    facts.push(("/kythe/node/kind", b"record"));
-                    facts.push(("/kythe/complete", b"definition"));
-                    facts.push(("/kythe/subkind", b"structvariant"));
-                }
-                StructKind::Unit => facts.push(("/kythe/node/kind", b"constant")),
-            };
-            for (fact_name, fact_value) in facts.iter() {
-                self.emitter.emit_fact(&def_vname, fact_name, fact_value.to_vec())?;
-            }
-            self.emitter.emit_edge(&def_vname, &enum_vname, "/kythe/edge/childof")?;
-            self.emitter.emit_anchor(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        } else {
-            // Emit a reference
-            self.emitter.emit_reference(
-                &anchor_vname,
-                &def_vname,
-                token_range_start,
-                token_range_end,
-            )?;
-        }
-
-        Ok(())
-    }
-
     /// Get a VName signature for a Definition from the cache or by generating
     /// it
-    fn get_signature(&mut self, db: &RootDatabase, def: Definition) -> String {
+    fn get_signature(&mut self, db: &RootDatabase, def: Definition) -> Option<String> {
         // Check if we already know what the signature is
         if let Some(signature) = self.def_to_signature.get(&def) {
-            return signature.to_owned();
+            return Some(signature.to_owned());
         }
 
         let signature = match def {
             Definition::Adt(adt) => {
                 let name = adt.name(db).to_smol_str();
-                let module_signature = self.get_signature(db, Definition::Module(adt.module(db)));
+                let module_signature =
+                    self.get_signature(db, Definition::Module(adt.module(db)))?;
                 match adt {
-                    Adt::Enum(_) => format!("{module_signature}::ENUM({name}"),
-                    Adt::Struct(_) => format!("{module_signature}::STRUCT({name})"),
-                    Adt::Union(_) => format!("{module_signature}::UNION({name})"),
+                    Adt::Enum(_) => Some(format!("{module_signature}::ENUM({name}")),
+                    Adt::Struct(_) => Some(format!("{module_signature}::STRUCT({name})")),
+                    Adt::Union(_) => Some(format!("{module_signature}::UNION({name})")),
                 }
             }
             Definition::Const(const_) => {
@@ -1346,8 +427,20 @@ impl<'a> UnitAnalyzer<'a> {
                     self.get_assoc_item_parent_signature(db, assoc_item.container(db))
                 } else {
                     self.get_signature(db, Definition::Module(const_.module(db)))
-                };
-                format!("{parent_signature}::CONST({name})")
+                }?;
+                Some(format!("{parent_signature}::CONST({name})"))
+            }
+            Definition::Field(field) => {
+                let name = field.name(db).to_smol_str();
+                let parent_def = field.parent_def(db);
+                let parent_signature = match parent_def {
+                    VariantDef::Struct(s) => {
+                        self.get_signature(db, Definition::Adt(Adt::Struct(s)))
+                    }
+                    VariantDef::Union(u) => self.get_signature(db, Definition::Adt(Adt::Union(u))),
+                    VariantDef::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                }?;
+                Some(format!("{parent_signature}::FIELD({name}"))
             }
             Definition::Function(function) => {
                 let name = function.name(db).to_smol_str();
@@ -1355,8 +448,8 @@ impl<'a> UnitAnalyzer<'a> {
                     self.get_assoc_item_parent_signature(db, assoc_item.container(db))
                 } else {
                     self.get_signature(db, Definition::Module(function.module(db)))
-                };
-                format!("{parent_signature}::FUNCTION({name})")
+                }?;
+                Some(format!("{parent_signature}::FUNCTION({name})"))
             }
             Definition::Label(label) => {
                 let name = label.name(db).to_smol_str();
@@ -1368,8 +461,8 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-                };
-                format!("{parent_signature}::LABEL({name}|{start}-{end})")
+                }?;
+                Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
             }
             Definition::Local(local) => {
                 let name = local.name(db).to_smol_str();
@@ -1386,31 +479,41 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-                };
-                format!("{parent_signature}::LABEL({name}|{start}-{end})")
+                }?;
+                Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
             }
             Definition::Macro(makro) => {
                 let name = makro.name(db).to_smol_str();
-                let module_signature = self.get_signature(db, Definition::Module(makro.module(db)));
-                format!("{module_signature}::MACRO({name})")
+                let module_signature =
+                    self.get_signature(db, Definition::Module(makro.module(db)))?;
+                Some(format!("{module_signature}::MACRO({name})"))
             }
             Definition::Module(module) => {
                 if module.is_crate_root(db) {
                     let def_source = module.definition_source(db);
                     let file_id = def_source.file_id.original_file(db);
-                    self.file_id_to_path.get(&file_id.0).unwrap().to_owned()
+                    Some(self.file_id_to_path.get(&file_id.0).unwrap().to_owned())
                 } else {
                     let parent = module.parent(db).unwrap();
-                    let parent_signature =
-                        self.get_signature(db, Definition::Module(parent.clone()));
+                    let parent_signature = self.get_signature(db, Definition::Module(parent))?;
                     let name = module.name(db).unwrap().to_smol_str();
-                    format!("{parent_signature}::{name}")
+                    Some(format!("{parent_signature}::{name}"))
                 }
+            }
+            Definition::Static(static_) => {
+                let name = static_.name(db).to_smol_str();
+                let module_signature =
+                    self.get_signature(db, Definition::Module(static_.module(db)))?;
+                let range = static_.source(db).unwrap().value.syntax().text_range();
+                let start = u32::from(range.start());
+                let end = u32::from(range.end());
+                Some(format!("{module_signature}::STATIC({name}|{start}-{end})"))
             }
             Definition::Trait(trate) => {
                 let name = trate.name(db).to_smol_str();
-                let module_signature = self.get_signature(db, Definition::Module(trate.module(db)));
-                format!("{module_signature}::TRAIT({name})")
+                let module_signature =
+                    self.get_signature(db, Definition::Module(trate.module(db)))?;
+                Some(format!("{module_signature}::TRAIT({name})"))
             }
             Definition::TypeAlias(talias) => {
                 let name = talias.name(db).to_smol_str();
@@ -1421,38 +524,314 @@ impl<'a> UnitAnalyzer<'a> {
                     self.get_assoc_item_parent_signature(db, assoc_item.container(db))
                 } else {
                     self.get_signature(db, Definition::Module(talias.module(db)))
-                };
-                format!("{parent_signature}::TALIAS({name}|{start}-{end})")
+                }?;
+                Some(format!("{parent_signature}::TALIAS({name}|{start}-{end})"))
             }
             Definition::Variant(variant) => {
                 let name = variant.name(db).to_smol_str();
                 let enum_signature =
-                    self.get_signature(db, Definition::Adt(Adt::Enum(variant.parent_enum(db))));
-                format!("{enum_signature}::VARIANT({name})")
+                    self.get_signature(db, Definition::Adt(Adt::Enum(variant.parent_enum(db))))?;
+                Some(format!("{enum_signature}::VARIANT({name})"))
             }
-            _ => "".to_string(),
+            _ => None,
         };
-        if !signature.is_empty() {
-            self.def_to_signature.insert(def.clone(), signature.clone());
+        if signature.is_some() {
+            self.def_to_signature.insert(def, signature.clone().unwrap());
         }
         signature
+    }
+
+    /// Attempt to generate the VName for a Definition's semantic parent
+    fn get_parent_vname(&mut self, db: &RootDatabase, def: &Definition) -> Option<VName> {
+        let parent_signature = match def {
+            Definition::Adt(adt) => self.get_signature(db, Definition::Module(adt.module(db))),
+            Definition::Const(const_) => {
+                if let Some(assoc_item) = const_.as_assoc_item(db) {
+                    match assoc_item.container(db) {
+                        AssocItemContainer::Trait(t) => {
+                            self.get_signature(db, Definition::Trait(t))
+                        }
+                        AssocItemContainer::Impl(i) => {
+                            let self_type = i.self_ty(db);
+                            if let Some(adt) = self_type.as_adt() {
+                                self.get_signature(db, Definition::Adt(adt))
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                } else {
+                    self.get_signature(db, Definition::Module(const_.module(db)))
+                }
+            }
+            Definition::Field(field) => {
+                let parent_def = field.parent_def(db);
+                match parent_def {
+                    VariantDef::Struct(s) => {
+                        self.get_signature(db, Definition::Adt(Adt::Struct(s)))
+                    }
+                    VariantDef::Union(u) => self.get_signature(db, Definition::Adt(Adt::Union(u))),
+                    VariantDef::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                }
+            }
+            Definition::Function(function) => {
+                if let Some(assoc_item) = function.as_assoc_item(db) {
+                    match assoc_item.container(db) {
+                        AssocItemContainer::Trait(t) => {
+                            self.get_signature(db, Definition::Trait(t))
+                        }
+                        AssocItemContainer::Impl(i) => {
+                            let self_type = i.self_ty(db);
+                            if let Some(adt) = self_type.as_adt() {
+                                self.get_signature(db, Definition::Adt(adt))
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                } else {
+                    self.get_signature(db, Definition::Module(function.module(db)))
+                }
+            }
+            Definition::Label(label) => match label.parent(db) {
+                DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
+                DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
+                DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
+                DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+            },
+            Definition::Local(local) => match local.parent(db) {
+                DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
+                DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
+                DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
+                DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+            },
+            Definition::Macro(macro_) => {
+                self.get_signature(db, Definition::Module(macro_.module(db)))
+            }
+            Definition::Static(static_) => {
+                self.get_signature(db, Definition::Module(static_.module(db)))
+            }
+            Definition::TypeAlias(talias) => {
+                if let Some(assoc_item) = talias.as_assoc_item(db) {
+                    match assoc_item.container(db) {
+                        AssocItemContainer::Trait(t) => {
+                            self.get_signature(db, Definition::Trait(t))
+                        }
+                        AssocItemContainer::Impl(i) => {
+                            let self_type = i.self_ty(db);
+                            if let Some(adt) = self_type.as_adt() {
+                                self.get_signature(db, Definition::Adt(adt))
+                            } else {
+                                // TODO: Should probably emit a diagnostic node here
+                                None
+                            }
+                        }
+                    }
+                } else {
+                    self.get_signature(db, Definition::Module(talias.module(db)))
+                }
+            }
+            Definition::Trait(trait_) => {
+                self.get_signature(db, Definition::Module(trait_.module(db)))
+            }
+            Definition::Variant(variant) => {
+                self.get_signature(db, Definition::Adt(Adt::Enum(variant.parent_enum(db))))
+            }
+            _ => None,
+        }?;
+        let mut parent_vname = self.gen_base_vname();
+        parent_vname.set_signature(parent_signature);
+        Some(parent_vname)
     }
 
     fn get_assoc_item_parent_signature(
         &mut self,
         db: &RootDatabase,
         aic: AssocItemContainer,
-    ) -> String {
+    ) -> Option<String> {
         match aic {
             AssocItemContainer::Trait(t) => self.get_signature(db, Definition::Trait(t)),
             AssocItemContainer::Impl(i) => {
-                let module_signature = self.get_signature(db, Definition::Module(i.module(db)));
+                let module_signature = self.get_signature(db, Definition::Module(i.module(db)))?;
                 let impl_range = i.source(db).unwrap().value.syntax().text_range();
                 let impl_start = u32::from(impl_range.start());
                 let impl_end = u32::from(impl_range.end());
-                format!("{module_signature}::IMPL({impl_start}-{impl_end}")
+                Some(format!("{module_signature}::IMPL({impl_start}-{impl_end}"))
             }
         }
+    }
+
+    fn visit_token(
+        &mut self,
+        semantics: &Semantics<'_, RootDatabase>,
+        db: &RootDatabase,
+        file_id: u32,
+        token: SyntaxToken,
+    ) -> Result<(), KytheError> {
+        // Get information about the definition
+        let def = get_definition(semantics, token.clone());
+        if def.is_none() {
+            // In the future we may want to return a diagnostic error but right now we won't
+            // have definitions for the standard library so it would just spam
+            return Ok(());
+        }
+        let def = def.unwrap();
+        // Immediately return if the definition is for something we don't support yet
+        if matches!(
+            &def,
+            Definition::BuiltinType(_)
+                | Definition::SelfType(_)
+                | Definition::GenericParam(_)
+                | Definition::DeriveHelper(_)
+                | Definition::BuiltinAttr(_)
+                | Definition::ToolModule(_)
+        ) {
+            return Ok(());
+        }
+        let def_range = get_definition_range(semantics, db, def).ok_or_else(|| {
+            KytheError::DiagnosticError("Unable to find range for definition".to_string())
+        })?;
+        let mut def_vname = self.gen_base_vname();
+        let def_signature = self.get_signature(db, def).ok_or_else(|| {
+            KytheError::DiagnosticError(
+                "Unable to generate VName signature for definition".to_string(),
+            )
+        })?;
+        def_vname.set_signature(def_signature);
+
+        // Create and emit the anchor
+        let token_range = token.text_range();
+        let token_range_start = u32::from(token_range.start());
+        let token_range_end = u32::from(token_range.end());
+        let mut anchor_vname = self.file_id_to_vname.get(&file_id).unwrap().clone();
+        anchor_vname.set_language("rust".to_string());
+        anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
+
+        // Determine if this is a definition
+        if file_id.eq(&def_range.file_id) && token_range.eq(&def_range.text_range) {
+            // If this is a module definition, just immediately return because we emit
+            // module definitions in `self.emit_modules()`
+            if matches!(&def, Definition::Module(_)) {
+                return Ok(());
+            }
+
+            // Emit the defines/binding edge between the anchor and the semantic node
+            self.emitter.emit_edge(&anchor_vname, &def_vname, "/kythe/edge/defines/binding")?;
+
+            // Collect the relevant facts to emit about the semantic node
+            let mut facts: Vec<(&str, &[u8])> = Vec::new();
+            match &def {
+                Definition::Adt(adt) => match adt {
+                    Adt::Enum(_) => {
+                        facts.push(("/kythe/node/kind", b"sum"));
+                        facts.push(("/kythe/complete", b"definition"));
+                        facts.push(("/kythe/subkind", b"enum"));
+                    }
+                    Adt::Struct(_) => {
+                        facts.push(("/kythe/node/kind", b"record"));
+                        facts.push(("/kythe/complete", b"definition"));
+                        facts.push(("/kythe/subkind", b"struct"));
+                    }
+                    Adt::Union(_) => {
+                        facts.push(("/kythe/node/kind", b"record"));
+                        facts.push(("/kythe/complete", b"definition"));
+                        facts.push(("/kythe/subkind", b"union"));
+                    }
+                },
+                Definition::Const(_) => {
+                    facts.push(("/kythe/node/kind", b"constant"));
+                }
+                Definition::Field(_) => {
+                    facts.push(("/kythe/node/kind", b"variable"));
+                    facts.push(("/kythe/complete", b"definition"));
+                    facts.push(("/kythe/subkind", b"field"));
+                }
+                Definition::Function(function) => {
+                    facts.push(("/kythe/node/kind", b"function"));
+                    if function.has_body(db) {
+                        facts.push(("/kythe/complete", b"definition"));
+                    } else {
+                        facts.push(("/kythe/complete", b"incomplete"));
+                    }
+                }
+                Definition::Label(_) => {
+                    facts.push(("/kythe/node/kind", b"variable"));
+                    facts.push(("/kythe/complete", b"definition"));
+                    facts.push(("/kythe/subkind", b"label"));
+                }
+                Definition::Local(_) => {
+                    facts.push(("/kythe/node/kind", b"variable"));
+                    facts.push(("/kythe/subkind", b"local"));
+                }
+                Definition::Macro(_) => {
+                    facts.push(("/kythe/node/kind", b"macro"));
+                }
+                Definition::Static(static_) => {
+                    facts.push(("/kythe/node/kind", b"variable"));
+                    if static_.value(db).is_some() {
+                        facts.push(("/kythe/complete", b"definition"));
+                    } else {
+                        facts.push(("/kythe/complete", b"incomplete"));
+                    }
+                    facts.push(("/kythe/subkind", b"static"));
+                }
+                Definition::TypeAlias(_) => {
+                    facts.push(("/kythe/node/kind", b"talias"));
+                }
+                Definition::Trait(_) => {
+                    facts.push(("/kythe/node/kind", b"interface"));
+                }
+                Definition::Variant(variant) => {
+                    match variant.kind(db) {
+                        StructKind::Tuple => {
+                            facts.push(("/kythe/node/kind", b"record"));
+                            facts.push(("/kythe/complete", b"definition"));
+                            facts.push(("/kythe/subkind", b"tuplevariant"));
+                        }
+                        StructKind::Record => {
+                            facts.push(("/kythe/node/kind", b"record"));
+                            facts.push(("/kythe/complete", b"definition"));
+                            facts.push(("/kythe/subkind", b"structvariant"));
+                        }
+                        StructKind::Unit => facts.push(("/kythe/node/kind", b"constant")),
+                    };
+                }
+                _ => {}
+            };
+            // Emit all of the facts
+            for (fact_name, fact_value) in facts.iter() {
+                self.emitter.emit_fact(&def_vname, fact_name, fact_value.to_vec())?;
+            }
+            // Try to get a parent VName and emit a childof edge
+            if let Some(parent_vname) = self.get_parent_vname(db, &def) {
+                self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
+            }
+        } else {
+            // This is a reference, so emit the corresponding edge
+            let edge_kind = if matches!(&def, Definition::Macro(_)) {
+                "/kythe/edge/ref/expands"
+            } else {
+                "/kythe/edge/ref"
+            };
+            self.emitter.emit_edge(&anchor_vname, &def_vname, edge_kind)?;
+        }
+
+        // Emit the anchor facts. We do it here instead of before the if-statement
+        // because of the nested if-statement that returns immediately if this is a
+        // module definition.
+        self.emitter.emit_fact(&anchor_vname, "/kythe/node/kind", b"anchor".to_vec())?;
+        self.emitter.emit_fact(
+            &anchor_vname,
+            "/kythe/loc/start",
+            token_range_start.to_string().into_bytes().to_vec(),
+        )?;
+        self.emitter.emit_fact(
+            &anchor_vname,
+            "/kythe/loc/end",
+            token_range_end.to_string().into_bytes().to_vec(),
+        )?;
+
+        Ok(())
     }
 
     fn gen_base_vname(&self) -> VName {
@@ -1516,4 +895,124 @@ fn get_definition(sema: &Semantics<'_, RootDatabase>, token: SyntaxToken) -> Opt
         }
     }
     None
+}
+
+fn get_definition_range(
+    semantics: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    def: Definition,
+) -> Option<FileRange> {
+    match def {
+        Definition::Adt(adt) => {
+            let source = semantics.source(adt)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Const(const_) => {
+            let source = semantics.source(const_)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Field(field) => {
+            let source = field.source(db)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node = match source.value {
+                FieldSource::Named(f) => {
+                    f.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)
+                }
+                _ => None,
+            }?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Function(function) => {
+            let source = semantics.source(function)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Label(label) => {
+            let source = label.source(db);
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::LIFETIME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Local(local) => {
+            let source = local.source(db);
+            let def_file_id = source.file_id.original_file(db);
+            let name_node = if source.value.is_left() {
+                source
+                    .value
+                    .unwrap_left()
+                    .syntax()
+                    .children()
+                    .find(|it| it.kind() == SyntaxKind::NAME)
+            } else {
+                source
+                    .value
+                    .unwrap_right()
+                    .syntax()
+                    .children()
+                    .find(|it| it.kind() == SyntaxKind::NAME)
+            }?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Macro(macro_) => {
+            let source = semantics.source(macro_)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Module(module) => {
+            let source = module.definition_source(db);
+            let def_file_id = source.file_id.original_file(db);
+            let text_range = match source.value {
+                ModuleSource::Module(ast_module) => {
+                    let name_node =
+                        ast_module.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+                    Some(name_node.text_range())
+                }
+                ModuleSource::SourceFile(_) => {
+                    Some(TextRange::new(TextSize::from(0), TextSize::from(0)))
+                }
+                _ => None,
+            }?;
+            Some(FileRange { file_id: def_file_id.0, text_range })
+        }
+        Definition::Static(static_) => {
+            let source = semantics.source(static_)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::TypeAlias(talias) => {
+            let source = semantics.source(talias)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Trait(trait_) => {
+            let source = semantics.source(trait_)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::Variant(variant) => {
+            let source = semantics.source(variant)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        _ => None,
+    }
 }

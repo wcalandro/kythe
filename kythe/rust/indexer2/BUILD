@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library", "rust_test")
 load("//tools/build_rules/verifier_test:rust_indexer_test2.bzl", "rust_indexer_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -24,7 +24,6 @@ rust_library(
         "@crate_index//:ra_ap_project_model",
         "@crate_index//:ra_ap_syntax",
         "@crate_index//:ra_ap_vfs",
-        "@crate_index//:rowan",
         "@crate_index//:rustc-hash",
         "@crate_index//:serde",
         "@crate_index//:serde_json",
@@ -52,14 +51,14 @@ rust_binary(
     ],
 )
 
-# rust_clippy(
-#     name = "clippy",
-#     deps = [
-#         ":bazel_indexer",
-#         ":kythe_rust_indexer",
-#         # ":proxy_indexer",
-#     ],
-# )
+rust_clippy(
+    name = "clippy",
+    deps = [
+        ":bazel_indexer",
+        ":kythe_rust_indexer",
+        # ":proxy_indexer",
+    ],
+)
 
 rust_indexer_test(
     name = "adt_test",
