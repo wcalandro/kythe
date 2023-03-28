@@ -30,7 +30,7 @@ def _rust_extract_impl(ctx):
     # Copy out_dir_files to out_dir
     all_out_dir_files = []
     for f in ctx.files.out_dir_files:
-        out = ctx.actions.declare_file("out_dir/%s" % f.basename)
+        out = ctx.actions.declare_file("%s_out_dir/%s" % (ctx.label.name, f.basename))
         all_out_dir_files.append(out)
         ctx.actions.run_shell(
             outputs = [out],
@@ -63,8 +63,10 @@ def _rust_extract_impl(ctx):
     crate["cfg"] = ["test", "debug_assertions"]
     crate["relevant_srcs"] = [src.path for src in ctx.files.srcs]
 
-    # TODO: Set up out_dir_path
-    crate["out_dir_path"] = ""
+    if len(all_out_dir_files) > 0:
+        crate["out_dir_path"] = all_out_dir_files[0].dirname
+    else:
+        crate["out_dir_path"] = ""
 
     extraction_info_file = ctx.actions.declare_file(ctx.label.name + ".rust_extraction_info.json")
     ctx.actions.write(
@@ -73,7 +75,7 @@ def _rust_extract_impl(ctx):
     )
 
     # Generate the kzip
-    runfiles = ctx.files.srcs + [extraction_info_file, ctx.file._vnames_config_file]
+    runfiles = ctx.files.srcs + all_out_dir_files + [extraction_info_file, ctx.file._vnames_config_file]
     output = ctx.outputs.kzip
     ctx.actions.run(
         mnemonic = "RustExtract",
@@ -219,7 +221,6 @@ def rust_indexer_test(
       name: Rule name
       srcs: A list of Rust source files to index and verify
       out_dir_files: A list of files to include in $OUT_DIR
-      is_test_lib: Whether to compile the srcs as a Rust test
       size: The size to pass to the verifier_test macro
       tags: The tags to pass to the verifier_test macro
       log_entries: Enable to make the verifier log all indexer entries
