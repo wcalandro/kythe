@@ -352,17 +352,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive-new"
-version = "0.5.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3418329ca0ad70234b9735dc4ceed10af4df60eff9c8e7b06cb5e520d92c3535"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,7 +370,6 @@ dependencies = [
  "clap",
  "glob",
  "hex",
- "lazy_static",
  "protobuf",
  "protobuf-codegen",
  "quick-error",
@@ -392,17 +380,11 @@ dependencies = [
  "ra_ap_project_model",
  "ra_ap_syntax",
  "ra_ap_vfs",
- "rayon",
  "regex",
- "rls-analysis",
- "rls-data",
- "rowan",
  "rustc-hash",
  "serde",
  "serde_json",
- "serial_test",
  "sha2",
- "tempfile",
  "zip",
 ]
 
@@ -437,15 +419,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c533630cf40e9caa44bd91aadc88a75d75a4c3a12b4cfde353cbed41daa1e1f1"
 dependencies = [
  "log",
-]
-
-[[package]]
-name = "fastrand"
-version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7a407cfaa3385c4ae6b23e84623d48c2798d06e3e6a1878f7f59f17b3f86499"
-dependencies = [
- "instant",
 ]
 
 [[package]]
@@ -613,12 +586,6 @@ name = "itoa"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fad582f4b9e86b6caa621cabeb0963332d92eea04729ab12892c2533951e6440"
-
-[[package]]
-name = "json"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "078e285eafdfb6c4b434e0d31e8cfcb5115b651496faca5749b88fafd4f23bfd"
 
 [[package]]
 name = "lazy_static"
@@ -1396,51 +1363,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
 
 [[package]]
-name = "remove_dir_all"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
-dependencies = [
- "winapi",
-]
-
-[[package]]
-name = "rls-analysis"
-version = "0.18.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85293f293444a5f569dd394024b2af9e91fc6b71d336f35c02bc936a29a5fe7e"
-dependencies = [
- "derive-new",
- "fst",
- "itertools",
- "json",
- "log",
- "rls-data",
- "rls-span",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "rls-data"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a58135eb039f3a3279a33779192f0ee78b56f57ae636e25cec83530e41debb99"
-dependencies = [
- "rls-span",
- "serde",
-]
-
-[[package]]
-name = "rls-span"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6e80f614ad4b37910bfe9b029af19c6f92612bb8e1af66e37d35829bf4ef6d1"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "rowan"
 version = "0.15.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1467,12 +1389,6 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
-name = "rustversion"
-version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5583e89e108996506031660fe09baa5011b9dd0341b89029313006d1fb508d70"
 
 [[package]]
 name = "ryu"
@@ -1562,30 +1478,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serial_test"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5bcc41d18f7a1d50525d080fd3e953be87c4f9f1a974f3c21798ca00d54ec15"
-dependencies = [
- "lazy_static",
- "parking_lot",
- "serial_test_derive",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2881bccd7d60fb32dfa3d7b3136385312f8ad75e2674aab2852867a09790cae8"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn",
-]
-
-[[package]]
 name = "sha2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1638,20 +1530,6 @@ dependencies = [
  "quote",
  "syn",
  "unicode-xid",
-]
-
-[[package]]
-name = "tempfile"
-version = "3.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cdb1ef4eaeeaddc8fbd371e5017057064af0911902ef36b39801f67cc6d79e4"
-dependencies = [
- "cfg-if",
- "fastrand",
- "libc",
- "redox_syscall",
- "remove_dir_all",
- "winapi",
 ]
 
 [[package]]

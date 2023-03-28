@@ -115,9 +115,6 @@ crates_repository(
         "hex": crate.spec(
             version = "0.4.3",
         ),
-        "lazy_static": crate.spec(
-            version = "1.4.0",
-        ),
         "quick-error": crate.spec(
             version = "2.0.1",
         ),
@@ -142,20 +139,8 @@ crates_repository(
         "ra_ap_vfs": crate.spec(
             version = rust_analyzer_version,
         ),
-        "rayon": crate.spec(
-            version = "=1.6.1",
-        ),
         "regex": crate.spec(
             version = "1.5.6",
-        ),
-        "rls-analysis": crate.spec(
-            version = "0.18.3",
-        ),
-        "rls-data": crate.spec(
-            version = "0.19.1",
-        ),
-        "rowan": crate.spec(
-            version = "=0.15.10",
         ),
         "rustc-hash": crate.spec(
             version = "=1.1.0",
@@ -169,15 +154,8 @@ crates_repository(
         "sha2": crate.spec(
             version = "0.10.2",
         ),
-        "tempfile": crate.spec(
-            version = "3.3.0",
-        ),
         "zip": crate.spec(
             version = "0.5.11",
-        ),
-        # Dev dependency for fuchsia extractor
-        "serial_test": crate.spec(
-            version = "0.6.0",
         ),
         # Dependencies for our Rust protobuf toolchain
         "protobuf": crate.spec(
