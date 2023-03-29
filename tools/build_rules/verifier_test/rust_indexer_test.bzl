@@ -58,7 +58,6 @@ def _rust_extract_impl(ctx):
     crate["edition"] = "2021"
     crate["target"] = ctx.toolchains[Label("@rules_rust//rust:toolchain")].target_triple.str
     crate["crate_type"] = "bin"
-    crate["is_external"] = False
     crate["deps"] = []
     crate["cfg"] = ["test", "debug_assertions"]
     crate["relevant_srcs"] = [src.path for src in ctx.files.srcs]

@@ -36,9 +36,6 @@ pub struct ExtractionInfo {
     /// The Rust edition
     pub edition: String,
 
-    /// Whether the crate is remote code
-    pub is_external: bool,
-
     /// The crate's name
     pub name: String,
 
@@ -208,7 +205,6 @@ mod test {
             crate_type: "proc-macro".to_string(),
             deps: vec![],
             edition: "2021".to_string(),
-            is_external: false,
             name: "kythe_test".to_string(),
             out_dir_path: None,
             output: None,
@@ -242,7 +238,6 @@ mod test {
             crate_type: "rlib".to_string(),
             deps: vec![],
             edition: "2021".to_string(),
-            is_external: false,
             name: "kythe_test".to_string(),
             out_dir_path: Some("bazel-out/kythe_test_build_script.out_dir".to_string()),
             output: None,
@@ -285,7 +280,6 @@ mod test {
             crate_type: "rlib".to_string(),
             deps: vec![],
             edition: "2021".to_string(),
-            is_external: false,
             name: "kythe_test_dep".to_string(),
             out_dir_path: None,
             output: None,
@@ -299,7 +293,6 @@ mod test {
             crate_type: "rlib".to_string(),
             deps: vec![dep],
             edition: "2021".to_string(),
-            is_external: false,
             name: "kythe_test".to_string(),
             out_dir_path: None,
             output: None,

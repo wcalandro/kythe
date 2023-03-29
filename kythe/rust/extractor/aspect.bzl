@@ -20,7 +20,6 @@ def _rust_extractor_aspect_impl(target, ctx):
                 crate["output"] = outputs_list[0].path
 
     # TODO: Handle aliases?
-    # TODO: See if we need to get to populate proc_macro_dylib_path
 
     extraction_info_file = ctx.actions.declare_file(ctx.label.name + ".rust_extraction_info.json")
     ctx.actions.write(
@@ -53,7 +52,6 @@ def _process_basic_crate_info(ctx, crate_info):
     crate["edition"] = crate_info.edition
     crate["target"] = ctx.toolchains[Label("@rules_rust//rust:toolchain")].target_triple.str
     crate["crate_type"] = crate_info.type
-    crate["is_external"] = crate_info.root.path.startswith("external/")
     crate["deps"] = []
 
     cfg = ["test", "debug_assertions"]
