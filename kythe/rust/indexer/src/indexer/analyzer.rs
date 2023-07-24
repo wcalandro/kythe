@@ -37,7 +37,7 @@ use storage_rust_proto::*;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use triomphe::Arc;
 
 struct FileRange {
     pub file_id: u32,
@@ -162,10 +162,7 @@ impl<'a> UnitAnalyzer<'a> {
 
         // Create the project workspace from the project
         let extra_env: FxHashMap<String, String> = FxHashMap::default();
-        let workspace =
-            ProjectWorkspace::load_inline(rust_project, None, &extra_env).map_err(|e| {
-                KytheError::IndexerError(format!("Failed to create Rust project workspace: {e}"))
-            })?;
+        let workspace = ProjectWorkspace::load_inline(rust_project, None, &extra_env, None);
 
         // Add all required inputs to the VFS and the analysis change and keep track of
         // the file ids that correspond to the root crate's source files
@@ -192,7 +189,7 @@ impl<'a> UnitAnalyzer<'a> {
                     "Failed to serialize the contents of {path} as a UTF-8 string: {e}"
                 ))
             })?;
-            analysis_change.change_file(file_id, Some(Arc::new(text)));
+            analysis_change.change_file(file_id, Some(Arc::from(text)));
 
             // Add file information to relevant hashmaps
             self.file_id_to_path.insert(file_id.0, path.clone());
@@ -207,8 +204,7 @@ impl<'a> UnitAnalyzer<'a> {
         }
 
         // Generate and set the crate graph
-        let crate_graph = workspace.to_crate_graph(
-            &mut |_, _| Err("proc_macro_client is disabled".to_string()),
+        let (crate_graph, _) = workspace.to_crate_graph(
             &mut |path: &AbsPath| {
                 let source_path =
                     path.strip_prefix(project_root).unwrap().as_ref().display().to_string();
@@ -427,7 +423,7 @@ impl<'a> UnitAnalyzer<'a> {
             }
             Definition::Const(const_) => {
                 let name = if let Some(name) = const_.name(db) {
-                    name.to_string()
+                    name.to_smol_str().to_string()
                 } else {
                     let range = const_.source(db).unwrap().value.syntax().text_range();
                     let start = u32::from(range.start());
@@ -472,12 +468,13 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                    DefWithBody::InTypeConst(_) => todo!(),
                 }?;
                 Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
             }
             Definition::Local(local) => {
                 let name = local.name(db).to_smol_str();
-                let source = local.source(db).value;
+                let source = local.primary_source(db).source.value;
                 let range = if source.is_left() {
                     source.unwrap_left().syntax().text_range()
                 } else {
@@ -490,6 +487,7 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                    DefWithBody::InTypeConst(_) => todo!(),
                 }?;
                 Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
             }
@@ -500,7 +498,7 @@ impl<'a> UnitAnalyzer<'a> {
                 Some(format!("{module_signature}::MACRO({name})"))
             }
             Definition::Module(module) => {
-                if module.is_crate_root(db) {
+                if module.is_crate_root() {
                     let def_source = module.definition_source(db);
                     let file_id = def_source.file_id.original_file(db);
                     Some(self.file_id_to_path.get(&file_id.0).unwrap().to_owned())
@@ -609,12 +607,14 @@ impl<'a> UnitAnalyzer<'a> {
                 DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                 DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                 DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                DefWithBody::InTypeConst(_) => todo!(),
             },
             Definition::Local(local) => match local.parent(db) {
                 DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
                 DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                 DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                 DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                DefWithBody::InTypeConst(_) => todo!(),
             },
             Definition::Macro(macro_) => {
                 self.get_signature(db, Definition::Module(macro_.module(db)))
@@ -978,7 +978,7 @@ fn get_definition_range(
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
         Definition::Local(local) => {
-            let source = local.source(db);
+            let source = local.primary_source(db).source;
             let def_file_id = source.file_id.original_file(db);
             let name_node = if source.value.is_left() {
                 source

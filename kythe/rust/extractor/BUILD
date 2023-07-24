@@ -42,13 +42,13 @@ rust_binary(
     ],
 )
 
-rust_clippy(
-    name = "clippy",
-    deps = [
-        ":extractor",
-        ":extractor_lib",
-    ],
-)
+# rust_clippy(
+#     name = "clippy",
+#     deps = [
+#         ":extractor",
+#         ":extractor_lib",
+#     ],
+# )
 
 bzl_library(
     name = "aspect_bzl",

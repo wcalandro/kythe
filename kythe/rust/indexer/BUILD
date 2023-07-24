@@ -28,6 +28,7 @@ rust_library(
         "@crate_index//:serde",
         "@crate_index//:serde_json",
         "@crate_index//:sha2",
+        "@crate_index//:triomphe",
         "@crate_index//:zip",
     ],
 )

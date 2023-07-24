@@ -62,7 +62,7 @@ bzl_library(
     srcs = ["setup.bzl"],
 )
 
-# Create a Rust protobuf toolchain with protobuf version 2.8.2
+# Create a Rust protobuf toolchain with the protobuf version from WORKSPACE
 rust_proto_toolchain(
     name = "rust_proto_toolchain_impl",
     edition = "2021",
@@ -73,7 +73,7 @@ rust_proto_toolchain(
 toolchain(
     name = "rust_proto_toolchain",
     toolchain = ":rust_proto_toolchain_impl",
-    toolchain_type = "@rules_rust//proto:toolchain",
+    toolchain_type = "@rules_rust//proto/protobuf:toolchain_type",
 )
 
 refresh_compile_commands(
