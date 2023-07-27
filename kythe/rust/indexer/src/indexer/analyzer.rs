@@ -34,10 +34,10 @@ use ra_ap_syntax::{
 use ra_ap_vfs::{file_set::FileSetConfigBuilder, Vfs, VfsPath};
 use rustc_hash::FxHashMap;
 use storage_rust_proto::*;
+use triomphe::Arc;
 
 use std::collections::HashMap;
 use std::path::Path;
-use triomphe::Arc;
 
 struct FileRange {
     pub file_id: u32,
