@@ -284,8 +284,8 @@ impl<'a> UnitAnalyzer<'a> {
                         token.kind(),
                         SyntaxKind::IDENT
                             | SyntaxKind::LIFETIME_IDENT
-                            | SyntaxKind::CRATE_KW
-                            | SyntaxKind::SUPER_KW
+                            | T![crate]
+                            | T![super]
                             | T![self]
                             | T![Self]
                     )
@@ -388,7 +388,7 @@ impl<'a> UnitAnalyzer<'a> {
             };
             if let Some(doc) = module.docs(db) {
                 let mut doc_vname = def_vname.clone();
-                doc_vname.set_signature(format!("{}::(DOCUMENTATION)", def_vname.get_signature()));
+                doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
                 self.emitter.emit_fact(
                     &doc_vname,
