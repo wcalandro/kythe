@@ -474,12 +474,8 @@ impl<'a> UnitAnalyzer<'a> {
             }
             Definition::Local(local) => {
                 let name = local.name(db).to_smol_str();
-                let source = local.primary_source(db).source.value;
-                let range = if source.is_left() {
-                    source.unwrap_left().syntax().text_range()
-                } else {
-                    source.unwrap_right().syntax().text_range()
-                };
+                let source = local.primary_source(db);
+                let range = source.syntax().text_range();
                 let start = u32::from(range.start());
                 let end = u32::from(range.end());
                 let parent_signature = match local.parent(db) {
@@ -489,7 +485,7 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
                     DefWithBody::InTypeConst(_) => todo!(),
                 }?;
-                Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
+                Some(format!("{parent_signature}::LOCAL({name}|{start}-{end})"))
             }
             Definition::Macro(makro) => {
                 let name = makro.name(db).to_smol_str();
@@ -544,8 +540,8 @@ impl<'a> UnitAnalyzer<'a> {
             }
             _ => None,
         };
-        if signature.is_some() {
-            self.def_to_signature.insert(def, signature.clone().unwrap());
+        if let Some(sig) = &signature {
+            self.def_to_signature.insert(def, sig.clone());
         }
         signature
     }
@@ -687,6 +683,7 @@ impl<'a> UnitAnalyzer<'a> {
             return Ok(());
         }
         let def = def.unwrap();
+
         // Immediately return if the definition is for something we don't support yet
         if matches!(
             &def,
@@ -699,9 +696,8 @@ impl<'a> UnitAnalyzer<'a> {
         ) {
             return Ok(());
         }
-        let def_range = get_definition_range(semantics, db, def).ok_or_else(|| {
-            KytheError::DiagnosticError("Unable to find range for definition".to_string())
-        })?;
+
+        // Generate the VName for the node
         let mut def_vname = self.gen_base_vname();
         let def_signature = self.get_signature(db, def).ok_or_else(|| {
             KytheError::DiagnosticError(
@@ -710,7 +706,7 @@ impl<'a> UnitAnalyzer<'a> {
         })?;
         def_vname.set_signature(def_signature);
 
-        // Create and emit the anchor
+        // Generate the anchor VName
         let token_range = token.text_range();
         let token_range_start = u32::from(token_range.start());
         let token_range_end = u32::from(token_range.end());
@@ -719,6 +715,9 @@ impl<'a> UnitAnalyzer<'a> {
         anchor_vname.set_signature(format!("anchor_{token_range_start}_to_{token_range_end}"));
 
         // Determine if this is a definition
+        let def_range = get_definition_range(semantics, db, def).ok_or_else(|| {
+            KytheError::DiagnosticError("Unable to find range for definition".to_string())
+        })?;
         if file_id.eq(&def_range.file_id) && token_range.eq(&def_range.text_range) {
             // If this is a module definition, just immediately return because we emit
             // module definitions in `self.emit_modules()`
@@ -832,7 +831,7 @@ impl<'a> UnitAnalyzer<'a> {
             };
             if let Some(doc) = doc {
                 let mut doc_vname = def_vname.clone();
-                doc_vname.set_signature(format!("{}::(DOCUMENTATION)", def_vname.get_signature()));
+                doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
                 self.emitter.emit_fact(
                     &doc_vname,
@@ -978,23 +977,9 @@ fn get_definition_range(
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
         Definition::Local(local) => {
-            let source = local.primary_source(db).source;
-            let def_file_id = source.file_id.original_file(db);
-            let name_node = if source.value.is_left() {
-                source
-                    .value
-                    .unwrap_left()
-                    .syntax()
-                    .children()
-                    .find(|it| it.kind() == SyntaxKind::NAME)
-            } else {
-                source
-                    .value
-                    .unwrap_right()
-                    .syntax()
-                    .children()
-                    .find(|it| it.kind() == SyntaxKind::NAME)
-            }?;
+            let source = local.primary_source(db);
+            let def_file_id = source.source.file_id.original_file(db);
+            let name_node = source.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
         Definition::Macro(macro_) => {
