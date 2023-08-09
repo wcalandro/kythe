@@ -1,17 +1,18 @@
-load("@rules_rust//rust:rust_common.bzl", "CrateInfo")
+load("@rules_rust//rust:rust_common.bzl", "CrateInfo", "DepInfo")
 
 def _rust_extractor_aspect_impl(target, ctx):
-    crate_info = target[CrateInfo]
-    (crate, runfiles) = _process_basic_crate_info(ctx, crate_info)
+    # Generate crate info for target
+    (crate, runfiles) = _process_basic_crate_info(ctx, target[CrateInfo])
 
+    # Generate crate info for target's dependencies
     deps = []
-    for dep in crate_info.deps.to_list():
-        if dep.crate_info != None and dep.crate_info.root != crate_info.root:
-            (dep_crate, dep_runfiles) = _process_basic_crate_info(ctx, dep.crate_info)
-            deps.append(dep_crate)
-            runfiles.extend(dep_runfiles)
+    for c in target[DepInfo].direct_crates.to_list():
+        (dep_crate, dep_runfiles) = _process_basic_crate_info(ctx, c.dep, c.name)
+        deps.append(dep_crate)
+        runfiles.extend(dep_runfiles)
     crate["deps"] = deps
 
+    # Collect arguments and output
     for action in target.actions:
         if action.mnemonic == "Rustc":
             crate["arguments"] = action.argv
@@ -19,14 +20,14 @@ def _rust_extractor_aspect_impl(target, ctx):
             if len(outputs_list) > 0:
                 crate["output"] = outputs_list[0].path
 
-    # TODO: Handle aliases?
-
+    # Write extraction info file
     extraction_info_file = ctx.actions.declare_file(ctx.label.name + ".rust_extraction_info.json")
     ctx.actions.write(
         output = extraction_info_file,
         content = json.encode(crate),
     )
 
+    # Run the extractor
     kzip = ctx.actions.declare_file(ctx.label.name + ".rust.kzip")
     runfiles.append(extraction_info_file)
     runfiles.append(ctx.file._vnames_config)
@@ -37,17 +38,23 @@ def _rust_extractor_aspect_impl(target, ctx):
         mnemonic = "ExtractRustAspect",
         executable = ctx.executable._rust_extractor,
         arguments = [
-            "--extraction_info=%s" % extraction_info_file.path,
-            "--output=%s" % kzip.path,
-            "--vnames_config=%s" % ctx.file._vnames_config.path,
+            "-corpus=github.com/kythe/kythe",
+            "-extraction_info=%s" % extraction_info_file.path,
+            "-output=%s" % kzip.path,
+            "-vnames_config=%s" % ctx.file._vnames_config.path,
         ],
     )
 
     return [OutputGroupInfo(kzips = [kzip], rust_extraction_info = [extraction_info_file])]
 
-def _process_basic_crate_info(ctx, crate_info):
+def _process_basic_crate_info(ctx, crate_info, name = None):
     crate = dict()
-    crate["name"] = crate_info.name
+
+    if name != None:
+        crate["name"] = name
+    else:
+        crate["name"] = crate_info.name
+
     crate["root"] = crate_info.root.path
     crate["edition"] = crate_info.edition
     crate["target"] = ctx.toolchains[Label("@rules_rust//rust:toolchain")].target_triple.str
@@ -81,13 +88,13 @@ def _process_basic_crate_info(ctx, crate_info):
 
 extract_rust_aspect = aspect(
     implementation = _rust_extractor_aspect_impl,
-    toolchains = [str(Label("@rules_rust//rust:toolchain"))],
+    toolchains = ["@rules_rust//rust:toolchain"],
     incompatible_use_toolchain_transition = True,
     doc = "The extraction aspect for Rust",
     required_providers = [CrateInfo],
     attrs = {
         "_rust_extractor": attr.label(
-            default = Label("//kythe/rust/extractor"),
+            default = Label("//kythe/rust/extract_rust_kzip"),
             executable = True,
             cfg = "exec",
         ),

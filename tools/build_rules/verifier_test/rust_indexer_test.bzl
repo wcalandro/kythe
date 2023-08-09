@@ -80,15 +80,13 @@ def _rust_extract_impl(ctx):
         mnemonic = "RustExtract",
         executable = ctx.executable._extractor,
         arguments = [
-            "--extraction_info=%s" % extraction_info_file.path,
-            "--output=%s" % output.path,
-            "--vnames_config=%s" % ctx.file._vnames_config_file.path,
+            "-corpus=test_corpus",
+            "-extraction_info=%s" % extraction_info_file.path,
+            "-output=%s" % output.path,
+            "-vnames_config=%s" % ctx.file._vnames_config_file.path,
         ],
         inputs = runfiles,
         outputs = [output],
-        env = {
-            "KYTHE_CORPUS": "test_corpus",
-        },
     )
 
     # buildifier: disable=rule-impl-return
@@ -111,7 +109,7 @@ rust_extract = rule(
             default = "test_crate",
         ),
         "_extractor": attr.label(
-            default = Label("//kythe/rust/extractor"),
+            default = Label("//kythe/rust/extract_rust_kzip"),
             allow_files = True,
             executable = True,
             cfg = "exec",
