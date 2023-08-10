@@ -115,6 +115,9 @@ crates_repository(
         "hex": crate.spec(
             version = "0.4.3",
         ),
+        "pulldown-cmark": crate.spec(
+            version = "=0.9.3",
+        ),
         "quick-error": crate.spec(
             version = "2.0.1",
         ),

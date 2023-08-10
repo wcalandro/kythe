@@ -16,6 +16,7 @@ rust_library(
         "@crate_index//:base64",
         "@crate_index//:hex",
         "@crate_index//:protobuf",
+        "@crate_index//:pulldown-cmark",
         "@crate_index//:quick-error",
         "@crate_index//:ra_ap_hir",
         "@crate_index//:ra_ap_ide",
@@ -24,6 +25,7 @@ rust_library(
         "@crate_index//:ra_ap_project_model",
         "@crate_index//:ra_ap_syntax",
         "@crate_index//:ra_ap_vfs",
+        "@crate_index//:regex",
         "@crate_index//:rustc-hash",
         "@crate_index//:serde",
         "@crate_index//:serde_json",
@@ -109,6 +111,11 @@ rust_indexer_test(
 rust_indexer_test(
     name = "documentation_test",
     srcs = ["testdata/docs.rs"],
+)
+
+rust_indexer_test(
+    name = "doc_links_test",
+    srcs = ["testdata/doc_links.rs"],
 )
 
 rust_indexer_test(

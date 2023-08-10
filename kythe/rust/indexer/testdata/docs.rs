@@ -83,3 +83,10 @@ type Alias = i32;
 //- AliasComment documents Alias
 //- AliasComment.node/kind doc
 //- AliasComment.text "This is a comment for Alias"
+
+// Test escaping
+//- @+2"Escaping" defines/binding Escaping
+/// These characters should be escaped: \ ] [
+trait Escaping{}
+//- EscapingComment documents Escaping
+//- EscapingComment.text "These characters should be escaped: \\\\ \\] \\["

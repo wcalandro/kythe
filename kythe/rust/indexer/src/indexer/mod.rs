@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod analyzer;
+mod docs;
 pub mod entries;
 
 use crate::error::KytheError;

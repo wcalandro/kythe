@@ -16,6 +16,7 @@ use crate::error::KytheError;
 use crate::providers::FileProvider;
 use crate::writer::KytheWriter;
 
+use super::docs::process_documentation;
 use super::entries::EntryEmitter;
 
 use analysis_rust_proto::CompilationUnit;
@@ -833,12 +834,20 @@ impl<'a> UnitAnalyzer<'a> {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
-                self.emitter.emit_fact(
-                    &doc_vname,
-                    "/kythe/text",
-                    doc.as_str().as_bytes().to_vec(),
-                )?;
                 self.emitter.emit_edge(&doc_vname, &def_vname, "/kythe/edge/documents")?;
+
+                // Process the documentation, emit the text, and emit any params present in the
+                // text
+                let (doc_text, doc_refs) = process_documentation(&def, &doc, db);
+                self.emitter.emit_fact(&doc_vname, "/kythe/text", doc_text.into())?;
+                for (i, def) in doc_refs.iter().enumerate() {
+                    if let Some(signature) = self.get_signature(db, *def) {
+                        let mut param_vname = self.gen_base_vname();
+                        param_vname.set_signature(signature);
+                        let edge_kind = format!("/kythe/edge/param.{i}");
+                        self.emitter.emit_edge(&doc_vname, &param_vname, &edge_kind)?;
+                    }
+                }
             }
         } else {
             // This is a reference, so emit the corresponding edge

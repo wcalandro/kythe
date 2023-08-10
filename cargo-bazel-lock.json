@@ -1,5 +1,5 @@
 {
-  "checksum": "b332f6f523b6710ab17a81c50974eb5617009f0ed997da4f0a46feec9721689d",
+  "checksum": "745d17c892e08e10eac4a1c10ed3fda5aa836228dc03647370133a9c315abce7",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -2003,6 +2003,10 @@
               "target": "protobuf_codegen"
             },
             {
+              "id": "pulldown-cmark 0.9.3",
+              "target": "pulldown_cmark"
+            },
+            {
               "id": "quick-error 2.0.1",
               "target": "quick_error"
             },
@@ -2515,6 +2519,45 @@
         }
       },
       "license": "MIT"
+    },
+    "getopts 0.2.21": {
+      "name": "getopts",
+      "version": "0.2.21",
+      "repository": {
+        "Http": {
+          "url": "https://crates.io/api/v1/crates/getopts/0.2.21/download",
+          "sha256": "14dbbfd5c71d70241ecf9e6f13737f7b5ce823821063188d7e46c41d371eebd5"
+        }
+      },
+      "targets": [
+        {
+          "Library": {
+            "crate_name": "getopts",
+            "crate_root": "src/lib.rs",
+            "srcs": [
+              "**/*.rs"
+            ]
+          }
+        }
+      ],
+      "library_target_name": "getopts",
+      "common_attrs": {
+        "compile_data_glob": [
+          "**"
+        ],
+        "deps": {
+          "common": [
+            {
+              "id": "unicode-width 0.1.10",
+              "target": "unicode_width"
+            }
+          ],
+          "selects": {}
+        },
+        "edition": "2015",
+        "version": "0.2.21"
+      },
+      "license": "MIT/Apache-2.0"
     },
     "glob 0.3.1": {
       "name": "glob",
@@ -4802,13 +4845,13 @@
       },
       "license": "MIT"
     },
-    "pulldown-cmark 0.9.2": {
+    "pulldown-cmark 0.9.3": {
       "name": "pulldown-cmark",
-      "version": "0.9.2",
+      "version": "0.9.3",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/pulldown-cmark/0.9.2/download",
-          "sha256": "2d9cc634bc78768157b5cbfe988ffcd1dcba95cd2b2f03a88316c08c6d00ed63"
+          "url": "https://crates.io/api/v1/crates/pulldown-cmark/0.9.3/download",
+          "sha256": "77a1a2f1f0a7ecff9c31abbe177637be0e97a0aef46cf8738ece09327985d998"
         }
       },
       "targets": [
@@ -4836,6 +4879,13 @@
         "compile_data_glob": [
           "**"
         ],
+        "crate_features": {
+          "common": [
+            "default",
+            "getopts"
+          ],
+          "selects": {}
+        },
         "deps": {
           "common": [
             {
@@ -4843,11 +4893,15 @@
               "target": "bitflags"
             },
             {
+              "id": "getopts 0.2.21",
+              "target": "getopts"
+            },
+            {
               "id": "memchr 2.5.0",
               "target": "memchr"
             },
             {
-              "id": "pulldown-cmark 0.9.2",
+              "id": "pulldown-cmark 0.9.3",
               "target": "build_script_build"
             },
             {
@@ -4858,7 +4912,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.9.2"
+        "version": "0.9.3"
       },
       "build_script_attrs": {
         "data_glob": [
@@ -4895,7 +4949,7 @@
         "deps": {
           "common": [
             {
-              "id": "pulldown-cmark 0.9.2",
+              "id": "pulldown-cmark 0.9.3",
               "target": "pulldown_cmark"
             }
           ],
@@ -5763,7 +5817,7 @@
               "target": "oorandom"
             },
             {
-              "id": "pulldown-cmark 0.9.2",
+              "id": "pulldown-cmark 0.9.3",
               "target": "pulldown_cmark"
             },
             {
@@ -9411,6 +9465,42 @@
         ],
         "edition": "2018",
         "version": "1.10.1"
+      },
+      "license": "MIT/Apache-2.0"
+    },
+    "unicode-width 0.1.10": {
+      "name": "unicode-width",
+      "version": "0.1.10",
+      "repository": {
+        "Http": {
+          "url": "https://crates.io/api/v1/crates/unicode-width/0.1.10/download",
+          "sha256": "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b"
+        }
+      },
+      "targets": [
+        {
+          "Library": {
+            "crate_name": "unicode_width",
+            "crate_root": "src/lib.rs",
+            "srcs": [
+              "**/*.rs"
+            ]
+          }
+        }
+      ],
+      "library_target_name": "unicode_width",
+      "common_attrs": {
+        "compile_data_glob": [
+          "**"
+        ],
+        "crate_features": {
+          "common": [
+            "default"
+          ],
+          "selects": {}
+        },
+        "edition": "2015",
+        "version": "0.1.10"
       },
       "license": "MIT/Apache-2.0"
     },
