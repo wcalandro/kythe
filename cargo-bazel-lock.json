@@ -1,5 +1,5 @@
 {
-  "checksum": "745d17c892e08e10eac4a1c10ed3fda5aa836228dc03647370133a9c315abce7",
+  "checksum": "b33bae21b25625c298820bbfa134c7e0f98ffb7e8852fd6509828b7f434e3874",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -2013,6 +2013,10 @@
             {
               "id": "ra_ap_hir 0.0.165",
               "target": "ra_ap_hir"
+            },
+            {
+              "id": "ra_ap_hir_def 0.0.165",
+              "target": "ra_ap_hir_def"
             },
             {
               "id": "ra_ap_ide 0.0.165",

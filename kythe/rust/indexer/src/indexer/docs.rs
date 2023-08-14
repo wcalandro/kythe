@@ -22,21 +22,27 @@
 
 use pulldown_cmark::{BrokenLink, CowStr, Event, Options, Parser, Tag};
 use ra_ap_hir::{Documentation, HasAttrs, Namespace};
+use ra_ap_hir_def::attr::DocsRangeMap;
 use ra_ap_ide::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
 use ra_ap_syntax::TextRange;
 use regex::Regex;
 
+pub struct DocReference {
+    pub range: Option<TextRange>,
+    pub reference: Definition,
+}
+
 pub fn process_documentation(
     def: &Definition,
     docs: &Documentation,
+    range_map: &DocsRangeMap,
     db: &RootDatabase,
-) -> (String, Vec<Definition>) {
+) -> (String, Vec<DocReference>) {
     let link_defs: Vec<(TextRange, Option<Definition>)> = extract_links_from_docs(docs)
         .into_iter()
         .map(|(range, link, ns)| (range, resolve_doc_path_for_def(db, *def, &link, ns)))
         .collect();
-    eprintln!("Found {} links", link_defs.len());
 
     // If there are no doc links, just sanitize the doc and return
     if link_defs.is_empty() {
@@ -48,9 +54,9 @@ pub fn process_documentation(
     let doc_string = docs.as_str().to_string();
     let doc_chars: Vec<char> = doc_string.chars().collect();
     let mut doc_cursor: usize = 0;
-    let mut defs = Vec::new();
+    let mut refs = Vec::new();
     let mut new_doc = Vec::new();
-    for (range, def) in link_defs.iter() {
+    for (range, link_def) in link_defs.into_iter() {
         while doc_cursor < range.start().into() && doc_cursor < doc_string.len() {
             let c = doc_chars[doc_cursor];
             if c == '\\' || c == '[' || c == ']' {
@@ -68,12 +74,13 @@ pub fn process_documentation(
         } else {
             String::from("unknown")
         };
-        if let Some(def) = def {
-            eprintln!("Found def for {title}");
+        if let Some(link_def) = link_def {
             new_doc.extend(format!("[{title}]").chars());
-            defs.push(*def);
+            refs.push(DocReference {
+                range: range_map.map(range).map(|r| r.value),
+                reference: link_def,
+            });
         } else {
-            eprintln!("Failed to find def for {title}");
             new_doc.extend(title.chars());
         }
         doc_cursor = range.end().into();
@@ -86,7 +93,7 @@ pub fn process_documentation(
         new_doc.push(c);
         doc_cursor += 1;
     }
-    (String::from_iter(new_doc), defs)
+    (String::from_iter(new_doc), refs)
 }
 
 const MARKDOWN_OPTIONS: Options =
@@ -104,7 +111,6 @@ fn extract_links_from_docs(docs: &Documentation) -> Vec<(TextRange, String, Opti
     .filter_map(|(event, range)| match event {
         Event::Start(Tag::Link(_, target, _)) => {
             let (link, ns) = parse_intra_doc_link(&target);
-            eprintln!("Found link {link}");
             Some((
                 TextRange::new(range.start.try_into().ok()?, range.end.try_into().ok()?),
                 link.to_string(),

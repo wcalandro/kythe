@@ -124,6 +124,9 @@ crates_repository(
         "ra_ap_hir": crate.spec(
             version = rust_analyzer_version,
         ),
+        "ra_ap_hir_def": crate.spec(
+            version = rust_analyzer_version,
+        ),
         "ra_ap_ide": crate.spec(
             version = rust_analyzer_version,
         ),

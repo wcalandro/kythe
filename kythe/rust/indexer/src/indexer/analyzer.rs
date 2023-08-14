@@ -387,16 +387,53 @@ impl<'a> UnitAnalyzer<'a> {
                 // for the time being
                 _ => {}
             };
-            if let Some(doc) = module.docs(db) {
+            if let Some((doc, range_map)) = module.attrs(db).docs_with_rangemap(db) {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
-                self.emitter.emit_fact(
-                    &doc_vname,
-                    "/kythe/text",
-                    doc.as_str().as_bytes().to_vec(),
-                )?;
                 self.emitter.emit_edge(&doc_vname, &def_vname, "/kythe/edge/documents")?;
+
+                // Process the documentation, emit the text, and emit any params present in the
+                // text
+                let def = Definition::Module(module.clone());
+                let (doc_text, doc_refs) = process_documentation(&def, &doc, &range_map, db);
+                self.emitter.emit_fact(&doc_vname, "/kythe/text", doc_text.into())?;
+                for (i, doc_ref) in doc_refs.iter().enumerate() {
+                    // Emit the doc param referencing the item in the link
+                    if let Some(signature) = self.get_signature(db, doc_ref.reference) {
+                        let mut ref_vname = self.gen_base_vname();
+                        ref_vname.set_signature(signature);
+                        let edge_kind = format!("/kythe/edge/param.{i}");
+                        self.emitter.emit_edge(&doc_vname, &ref_vname, &edge_kind)?;
+
+                        // If we got a range back for the link in the documentation, emit an anchor
+                        // in the docs with a reference.
+                        if let Some(range) = doc_ref.range {
+                            let range_start = u32::from(range.start());
+                            let range_end = u32::from(range.end());
+                            let mut ref_anchor = anchor_vname.clone();
+                            ref_anchor
+                                .set_signature(format!("anchor_{range_start}_to_{range_end}"));
+
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/node/kind",
+                                b"anchor".to_vec(),
+                            )?;
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/loc/start",
+                                range_start.to_string().into_bytes().to_vec(),
+                            )?;
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/loc/end",
+                                range_end.to_string().into_bytes().to_vec(),
+                            )?;
+                            self.emitter.emit_edge(&ref_anchor, &ref_vname, "/kythe/edge/ref")?;
+                        }
+                    }
+                }
             }
         }
 
@@ -818,19 +855,19 @@ impl<'a> UnitAnalyzer<'a> {
                 self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
             }
             // See if there is any documentation
-            let doc = match def {
-                Definition::Adt(adt) => adt.docs(db),
-                Definition::Const(const_) => const_.docs(db),
-                Definition::Field(field) => field.docs(db),
-                Definition::Function(function) => function.docs(db),
-                Definition::Macro(macro_) => macro_.docs(db),
-                Definition::Static(static_) => static_.docs(db),
-                Definition::Trait(trait_) => trait_.docs(db),
-                Definition::TypeAlias(talias) => talias.docs(db),
-                Definition::Variant(variant) => variant.docs(db),
+            let docs_with_rangemap = match def {
+                Definition::Adt(adt) => adt.attrs(db).docs_with_rangemap(db),
+                Definition::Const(const_) => const_.attrs(db).docs_with_rangemap(db),
+                Definition::Field(field) => field.attrs(db).docs_with_rangemap(db),
+                Definition::Function(function) => function.attrs(db).docs_with_rangemap(db),
+                Definition::Macro(macro_) => macro_.attrs(db).docs_with_rangemap(db),
+                Definition::Static(static_) => static_.attrs(db).docs_with_rangemap(db),
+                Definition::Trait(trait_) => trait_.attrs(db).docs_with_rangemap(db),
+                Definition::TypeAlias(talias) => talias.attrs(db).docs_with_rangemap(db),
+                Definition::Variant(variant) => variant.attrs(db).docs_with_rangemap(db),
                 _ => None,
             };
-            if let Some(doc) = doc {
+            if let Some((doc, range_map)) = docs_with_rangemap {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
@@ -838,14 +875,42 @@ impl<'a> UnitAnalyzer<'a> {
 
                 // Process the documentation, emit the text, and emit any params present in the
                 // text
-                let (doc_text, doc_refs) = process_documentation(&def, &doc, db);
+                let (doc_text, doc_refs) = process_documentation(&def, &doc, &range_map, db);
                 self.emitter.emit_fact(&doc_vname, "/kythe/text", doc_text.into())?;
-                for (i, def) in doc_refs.iter().enumerate() {
-                    if let Some(signature) = self.get_signature(db, *def) {
-                        let mut param_vname = self.gen_base_vname();
-                        param_vname.set_signature(signature);
+                for (i, doc_ref) in doc_refs.iter().enumerate() {
+                    // Emit the doc param referencing the item in the link
+                    if let Some(signature) = self.get_signature(db, doc_ref.reference) {
+                        let mut ref_vname = self.gen_base_vname();
+                        ref_vname.set_signature(signature);
                         let edge_kind = format!("/kythe/edge/param.{i}");
-                        self.emitter.emit_edge(&doc_vname, &param_vname, &edge_kind)?;
+                        self.emitter.emit_edge(&doc_vname, &ref_vname, &edge_kind)?;
+
+                        // If we got a range back for the link in the documentation, emit an anchor
+                        // in the docs with a reference.
+                        if let Some(range) = doc_ref.range {
+                            let range_start = u32::from(range.start());
+                            let range_end = u32::from(range.end());
+                            let mut ref_anchor = anchor_vname.clone();
+                            ref_anchor
+                                .set_signature(format!("anchor_{range_start}_to_{range_end}"));
+
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/node/kind",
+                                b"anchor".to_vec(),
+                            )?;
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/loc/start",
+                                range_start.to_string().into_bytes().to_vec(),
+                            )?;
+                            self.emitter.emit_fact(
+                                &ref_anchor,
+                                "/kythe/loc/end",
+                                range_end.to_string().into_bytes().to_vec(),
+                            )?;
+                            self.emitter.emit_edge(&ref_anchor, &ref_vname, "/kythe/edge/ref")?;
+                        }
                     }
                 }
             }

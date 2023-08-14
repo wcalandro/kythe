@@ -19,6 +19,7 @@ rust_library(
         "@crate_index//:pulldown-cmark",
         "@crate_index//:quick-error",
         "@crate_index//:ra_ap_hir",
+        "@crate_index//:ra_ap_hir_def",
         "@crate_index//:ra_ap_ide",
         "@crate_index//:ra_ap_ide_db",
         "@crate_index//:ra_ap_paths",

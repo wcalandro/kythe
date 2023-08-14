@@ -1,18 +1,51 @@
-//- @Greeter defines/binding Greeter
-struct Greeter {}
+//- @Struct defines/binding Struct
+struct Struct;
+//- @Trait defines/binding Trait
+trait Trait {}
+//- @Enum defines/binding Enum
+enum Enum {}
+//- @Union defines/binding Union
+union Union {__: ()}
+//- @Type defines/binding Type
+type Type = ();
+//- @module defines/binding Module
+mod module {}
+//- @function defines/binding Function
+fn function() {}
+//- @CONST defines/binding Const
+const CONST: () = ();
+//- @STATIC defines/binding Static
+static STATIC: () = ();
 
-impl Greeter {
-    //- @hello_world defines/binding HelloWorld
-    pub fn hello_world() {
-        println!("Hello, World!");
-    }
-}
+//- @+2"doc1" defines/binding Doc1Fn
+/// [`Struct`] [`Trait`] [`Enum`] [`Union`] [`Type`] [`module`] [`function`] [`CONST`] [`STATIC`]
+fn doc1() {}
+//- Doc1 documents Doc1Fn
+//- Doc1 param.0 Struct
+//- Doc1 param.1 Trait
+//- Doc1 param.2 Enum
+//- Doc1 param.3 Union
+//- Doc1 param.4 Type
+//- Doc1 param.5 Module
+//- Doc1 param.6 Function
+//- Doc1 param.7 Const
+//- Doc1 param.8 Static
 
-//- @+2"call_greeter" defines/binding CallFn
-/// Uses [`Greeter`] and calls [`hello_world`](Greeter::hello_world())
-fn call_greeter() {
-    Greeter::hello_world();
+//- @+5"Trait2" defines/binding Trait2
+//- @"[`Trait2::Type`]" ref Trait2Type
+//- @"[`Trait2::CONST`]" ref Trait2Const
+//- @"[`function`](Trait2::function)" ref Trait2Function
+/// [`Trait2::Type`] [`invalid`] [`Trait2::CONST`] [`function`](Trait2::function)
+trait Trait2 {
+    //- @Type defines/binding Trait2Type
+    type Type;
+    //- @CONST defines/binding Trait2Const
+    const CONST: usize;
+    //- @function defines/binding Trait2Function
+    fn function();
 }
-//- CallFnDoc documents CallFn
-//- CallFnDoc param.0 Greeter
-//- CallFnDoc param.1 HelloWorld
+//- Doc2 documents Trait2
+//- Doc2 param.0 Trait2Type
+//- Doc2 param.1 Trait2Const
+//- Doc2 param.2 Trait2Function
+//- Doc2.text "[`Trait2::Type`] `invalid` [`Trait2::CONST`] [`function`]"

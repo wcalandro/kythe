@@ -381,6 +381,7 @@ dependencies = [
  "pulldown-cmark",
  "quick-error",
  "ra_ap_hir",
+ "ra_ap_hir_def",
  "ra_ap_ide",
  "ra_ap_ide_db",
  "ra_ap_paths",
