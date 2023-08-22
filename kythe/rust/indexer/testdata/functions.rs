@@ -10,15 +10,15 @@ trait Trait {
     //- TraitHelloFn.node/kind function
     //- TraitHelloFn.complete definition
     fn hello() -> String {
-        //- @get_string ref TraitGetStringFn
-        Self::get_string()
+        //- @get_string ref/call TraitGetStringFn
+        Self::get_string("Google")
     }
 
     //- @get_string defines/binding TraitGetStringFn
     //- TraitGetStringFn childof Trait
     //- TraitGetStringFn.node/kind function
     //- TraitGetStringFn.complete incomplete
-    fn get_string() -> String;
+    fn get_string(name: &str) -> String;
 }
 
 //- @TraitStruct defines/binding TraitStruct
@@ -29,8 +29,8 @@ impl Trait for TraitStruct {
     //- TSGetStringFn childof TraitStruct
     //- TSGetStringFn.node/kind function
     //- TSGetStringFn.complete definition
-    fn get_string() -> String {
-        format!("Hello from TraitStruct::get_string!")
+    fn get_string(name: &str) -> String {
+        format!("{name} says hello from TraitStruct::get_string!")
     }
 }
 
@@ -83,34 +83,34 @@ impl Union {
 //- MainFn.node/kind function
 //- MainFn.complete definition
 fn main() {
-    //- @hello ref HelloFn
-    //- !{ @hello ref StructHelloFn }
-    //- !{ @hello ref EnumHelloFn }
-    //- !{ @hello ref UnionHelloFn }
+    //- @hello ref/call HelloFn
+    //- !{ @hello ref/call StructHelloFn }
+    //- !{ @hello ref/call EnumHelloFn }
+    //- !{ @hello ref/call UnionHelloFn }
     hello();
     
-    //- @hello ref StructHelloFn
-    //- !{ @hello ref HelloFn }
-    //- !{ @hello ref EnumHelloFn }
-    //- !{ @hello ref UnionHelloFn }
+    //- @hello ref/call StructHelloFn
+    //- !{ @hello ref/call HelloFn }
+    //- !{ @hello ref/call EnumHelloFn }
+    //- !{ @hello ref/call UnionHelloFn }
     Struct::hello();
 
-    //- @hello ref EnumHelloFn
-    //- !{ @hello ref HelloFn }
-    //- !{ @hello ref StructHelloFn }
-    //- !{ @hello ref UnionHelloFn }
+    //- @hello ref/call EnumHelloFn
+    //- !{ @hello ref/call HelloFn }
+    //- !{ @hello ref/call StructHelloFn }
+    //- !{ @hello ref/call UnionHelloFn }
     Enum::hello();
 
-    //- @hello ref UnionHelloFn
-    //- !{ @hello ref HelloFn }
-    //- !{ @hello ref StructHelloFn }
-    //- !{ @hello ref EnumHelloFn }
+    //- @hello ref/call UnionHelloFn
+    //- !{ @hello ref/call HelloFn }
+    //- !{ @hello ref/call StructHelloFn }
+    //- !{ @hello ref/call EnumHelloFn }
     Union::hello();
 
-    //- @hello ref TraitHelloFn
+    //- @hello ref/call TraitHelloFn
     let _ = TraitStruct::hello();
-    //- @get_string ref TSGetStringFn
-    let _ = TraitStruct::get_string();
+    //- @get_string ref/call TSGetStringFn
+    let _ = TraitStruct::get_string("Wyatt");
 }
 
 //- @hello defines/binding HelloFn

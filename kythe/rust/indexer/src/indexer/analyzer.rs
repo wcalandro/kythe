@@ -395,7 +395,7 @@ impl<'a> UnitAnalyzer<'a> {
 
                 // Process the documentation, emit the text, and emit any params present in the
                 // text
-                let def = Definition::Module(module.clone());
+                let def = Definition::Module(module);
                 let (doc_text, doc_refs) = process_documentation(&def, &doc, &range_map, db);
                 self.emitter.emit_fact(&doc_vname, "/kythe/text", doc_text.into())?;
                 for (i, doc_ref) in doc_refs.iter().enumerate() {
@@ -918,6 +918,8 @@ impl<'a> UnitAnalyzer<'a> {
             // This is a reference, so emit the corresponding edge
             let edge_kind = if matches!(&def, Definition::Macro(_)) {
                 "/kythe/edge/ref/expands"
+            } else if matches!(&def, Definition::Function(_)) {
+                "/kythe/edge/ref/call"
             } else {
                 "/kythe/edge/ref"
             };
