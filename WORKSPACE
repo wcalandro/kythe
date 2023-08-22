@@ -170,15 +170,12 @@ crates_repository(
         # Dependencies for our Rust protobuf toolchain
         "protobuf": crate.spec(
             features = ["with-bytes"],
-            version = "=2.27.1",
+            version = "=2.28.0",
         ),
         "protobuf-codegen": crate.spec(
-            version = "=2.27.1",
+            version = "=2.28.0",
         ),
     },
-    render_config = render_config(
-        default_package_name = "",
-    ),
     rust_version = "nightly/2023-03-16",
 )
 

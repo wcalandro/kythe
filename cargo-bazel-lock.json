@@ -1,5 +1,5 @@
 {
-  "checksum": "b33bae21b25625c298820bbfa134c7e0f98ffb7e8852fd6509828b7f434e3874",
+  "checksum": "09c50f4f7912826f55bf2bb9d4d58ac8fe88e9f7bf1ebbacc2f6a81b33b23fcd",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -1995,11 +1995,11 @@
               "target": "hex"
             },
             {
-              "id": "protobuf 2.27.1",
+              "id": "protobuf 2.28.0",
               "target": "protobuf"
             },
             {
-              "id": "protobuf-codegen 2.27.1",
+              "id": "protobuf-codegen 2.28.0",
               "target": "protobuf_codegen"
             },
             {
@@ -4728,13 +4728,13 @@
       },
       "license": "MIT OR Apache-2.0"
     },
-    "protobuf 2.27.1": {
+    "protobuf 2.28.0": {
       "name": "protobuf",
-      "version": "2.27.1",
+      "version": "2.28.0",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/protobuf/2.27.1/download",
-          "sha256": "cf7e6d18738ecd0902d30d1ad232c9125985a3422929b16c65517b38adc14f96"
+          "url": "https://crates.io/api/v1/crates/protobuf/2.28.0/download",
+          "sha256": "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
         }
       },
       "targets": [
@@ -4776,14 +4776,14 @@
               "target": "bytes"
             },
             {
-              "id": "protobuf 2.27.1",
+              "id": "protobuf 2.28.0",
               "target": "build_script_build"
             }
           ],
           "selects": {}
         },
         "edition": "2018",
-        "version": "2.27.1"
+        "version": "2.28.0"
       },
       "build_script_attrs": {
         "data_glob": [
@@ -4792,13 +4792,13 @@
       },
       "license": "MIT"
     },
-    "protobuf-codegen 2.27.1": {
+    "protobuf-codegen 2.28.0": {
       "name": "protobuf-codegen",
-      "version": "2.27.1",
+      "version": "2.28.0",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/protobuf-codegen/2.27.1/download",
-          "sha256": "aec1632b7c8f2e620343439a7dfd1f3c47b18906c4be58982079911482b5d707"
+          "url": "https://crates.io/api/v1/crates/protobuf-codegen/2.28.0/download",
+          "sha256": "033460afb75cf755fcfc16dfaed20b86468082a2ea24e05ac35ab4a099a017d6"
         }
       },
       "targets": [
@@ -4838,14 +4838,14 @@
         "deps": {
           "common": [
             {
-              "id": "protobuf 2.27.1",
+              "id": "protobuf 2.28.0",
               "target": "protobuf"
             }
           ],
           "selects": {}
         },
         "edition": "2015",
-        "version": "2.27.1"
+        "version": "2.28.0"
       },
       "license": "MIT"
     },
@@ -10629,7 +10629,7 @@
     }
   },
   "binary_crates": [
-    "protobuf-codegen 2.27.1"
+    "protobuf-codegen 2.28.0"
   ],
   "workspace_members": {
     "direct-cargo-bazel-deps 0.0.1": ""
