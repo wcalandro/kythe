@@ -21,21 +21,21 @@ type Thinger interface {
 	//- MCode child.2 MName
 	//- MCode child.3 MParams
 	//-
-	//- MFunc.pre_text "func "
+	//- MFunc.kind "MODIFIER"
+	//- MFunc.pre_text "func"
+	//- MFunc.post_text " "
 	//-
 	//- MRecv.kind "PARAMETER"
 	//- MRecv.pre_text "("
 	//- MRecv.post_text ") "
-	//- MRecv child.0 MRType
+	//- MRecv child.0 MLookup
+	//- MLookup.kind "LOOKUP_BY_PARAM"
 	//-
 	//- MName child.0 MContext
 	//- MName child.1 MIdent
 	//-
 	//- MParams.kind "PARAMETER"
 	//- MParams.pre_text "()"
-	//-
-	//- MRType.kind "TYPE"
-	//- MRType.pre_text "Thinger"
 	//-
 	//- MContext.kind "CONTEXT"
 	//- MContext.post_child_text "."

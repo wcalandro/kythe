@@ -24,14 +24,15 @@ def cc_proto_verifier_test(
         name,
         srcs,
         proto_libs,
+        cc_deps = [],
+        cc_indexer = "//kythe/cxx/indexer/cxx:indexer",
         verifier_opts = [
             "--ignore_dups",
             # Else the verifier chokes on the inconsistent marked source from the protobuf headers.
             "--convert_marked_source",
         ],
         size = "small",
-        experimental_guess_proto_semantics = False,
-        experimental_record_dataflow_edges = False,
+        experimental_set_aliases_as_writes = False,
         minimal_claiming = True):
     """Verify cross-language references between C++ and Proto.
 
@@ -39,10 +40,11 @@ def cc_proto_verifier_test(
       name: Name of the test.
       srcs: The compilation's C++ source files; each file's verifier goals will be checked
       proto_libs: A list of proto_library targets
+      cc_deps: Additional cc deps needed by the cc test file
+      cc_indexer: The cc indexer to use
       verifier_opts: List of options passed to the verifier tool
       size: Size of the test.
-      experimental_guess_proto_semantics: guess proto semantics?
-      experimental_record_dataflow_edges: record dataflow edges?
+      experimental_set_aliases_as_writes: Set protobuf aliases as writes.
       minimal_claiming: If true, only index the `srcs` and protobuf header files.
 
     Returns:
@@ -67,6 +69,7 @@ def cc_proto_verifier_test(
             cc_kythe_proto_library,
             name = name + "_cc_proto",
             deps = proto_libs,
+            enable_proto_static_reflection = False,
         ),
     ]
 
@@ -74,7 +77,7 @@ def cc_proto_verifier_test(
         cc_extract_kzip,
         name = name + "_cc_kzip",
         srcs = srcs,
-        deps = cc_proto_libs,
+        deps = cc_proto_libs + cc_deps,
     )
 
     claim_file = None
@@ -84,7 +87,7 @@ def cc_proto_verifier_test(
             name = name + "_static_claim",
             outs = [claim_file],
             srcs = [cc_kzip],
-            exec_tools = ["//kythe/cxx/tools:static_claim"],
+            tools = ["//kythe/cxx/tools:static_claim"],
             cmd = " ".join([
                 "echo \"$<\" |",
                 "$(location //kythe/cxx/tools:static_claim)",
@@ -103,13 +106,10 @@ def cc_proto_verifier_test(
             "--claim_unknown=false",
         ]
         claim_deps = [claim_file]
-
-    guess_opt = []
-    if experimental_guess_proto_semantics:
-        guess_opt = ["--experimental_guess_proto_semantics"]
-    df_opt = []
-    if experimental_record_dataflow_edges:
-        df_opt = ["--experimental_record_dataflow_edges"]
+    
+    aw_opt = []
+    if experimental_set_aliases_as_writes:
+        aw_opt = ["--experimental_set_aliases_as_writes"]
 
     cc_entries = _invoke(
         cc_index,
@@ -117,14 +117,14 @@ def cc_proto_verifier_test(
         srcs = [cc_kzip],
         deps = claim_deps,
         opts = [
-            # Avoid emitting some nodes with conflicting facts.
-            "--experimental_index_lite",
             # Try to reduce the graph size to make life easier for the verifier.
             "--test_claim",
             "--noindex_template_instantiations",
             "--experimental_drop_instantiation_independent_data",
             "--noemit_anchors_on_builtins",
-        ] + guess_opt + df_opt + claim_opt,
+        ] + claim_opt + aw_opt,
+        indexer = cc_indexer,
+        test_indexer = cc_indexer,
     )
 
     return _invoke(

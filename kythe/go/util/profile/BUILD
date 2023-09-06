@@ -5,5 +5,9 @@ package(default_visibility = ["//kythe:default_visibility"])
 go_library(
     name = "profile",
     srcs = ["profile.go"],
-    deps = ["//kythe/go/platform/vfs"],
+    importpath = "kythe.io/kythe/go/util/profile",
+    deps = [
+        "//kythe/go/platform/vfs",
+        "//kythe/go/util/log",
+    ],
 )

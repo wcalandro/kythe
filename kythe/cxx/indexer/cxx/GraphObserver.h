@@ -20,17 +20,17 @@
 /// \file
 /// \brief Defines the class kythe::GraphObserver
 
+#include <optional>
 #include <string>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Lex/Preprocessor.h"
-#include "glog/logging.h"
 #include "kythe/cxx/common/indexing/KytheCachingOutput.h"
 #include "kythe/cxx/common/kythe_metadata_file.h"
 #include "llvm/ADT/APSInt.h"
@@ -111,7 +111,7 @@ class GraphObserver {
     /// token.
     virtual std::string StampIdentity(const std::string& Identity) const = 0;
     /// \brief Returns a value unique to each implementation of `ClaimToken`.
-    virtual void* GetClass() const = 0;
+    virtual uintptr_t GetClass() const = 0;
     /// \brief Checks for equality.
     ///
     /// `ClaimTokens` are only equal if they have the same value for `GetClass`.
@@ -338,7 +338,9 @@ class GraphObserver {
                                  const clang::FileEntry* TargetFile) {}
 
   /// \param LO the language options in use.
-  virtual void setLangOptions(clang::LangOptions* LO) { LangOptions = LO; }
+  virtual void setLangOptions(const clang::LangOptions* LO) {
+    LangOptions = LO;
+  }
 
   /// \param PP The `Preprocessor` to use.
   virtual void setPreprocessor(clang::Preprocessor* PP) { Preprocessor = PP; }
@@ -374,8 +376,7 @@ class GraphObserver {
   /// `clang::BuiltinType::getName(this->getLangOptions())` or the builtin
   /// type constructor.
   /// \return The `NodeId` for `Spelling`.
-  virtual NodeId getNodeIdForBuiltinType(
-      const llvm::StringRef& Spelling) const = 0;
+  virtual NodeId getNodeIdForBuiltinType(llvm::StringRef Spelling) const = 0;
 
   /// \brief Returns the ID for a type node aliasing another type node.
   /// \param AliasName a `NameId` for the alias name.
@@ -393,8 +394,8 @@ class GraphObserver {
   /// \param MarkedSource marked source for the alias.
   /// \return the `NodeId` for the type alias node this definition defines.
   NodeId recordTypeAliasNode(const NameId& AliasName, const NodeId& AliasedType,
-                             const absl::optional<NodeId>& RootAliasedType,
-                             const absl::optional<MarkedSource>& MarkedSource) {
+                             const std::optional<NodeId>& RootAliasedType,
+                             const std::optional<MarkedSource>& MarkedSource) {
     return recordTypeAliasNode(nodeIdForTypeAliasNode(AliasName, AliasedType),
                                AliasedType, RootAliasedType, MarkedSource);
   }
@@ -409,8 +410,8 @@ class GraphObserver {
   /// \return the `NodeId` for the type alias node this definition defines.
   virtual NodeId recordTypeAliasNode(
       const NodeId& AliasId, const NodeId& AliasedType,
-      const absl::optional<NodeId>& RootAliasedType,
-      const absl::optional<MarkedSource>& MarkedSource) = 0;
+      const std::optional<NodeId>& RootAliasedType,
+      const std::optional<MarkedSource>& MarkedSource) = 0;
 
   /// \brief Returns the ID for a nominal type node (such as a struct,
   /// typedef or enum).
@@ -425,8 +426,8 @@ class GraphObserver {
   /// \param Parent if non-null, the parent node of this nominal type.
   /// \return the `NodeId` for the type node corresponding to `TypeName`.
   NodeId recordNominalTypeNode(const NameId& TypeName,
-                               const absl::optional<MarkedSource>& MarkedSource,
-                               const absl::optional<NodeId>& Parent) {
+                               const std::optional<MarkedSource>& MarkedSource,
+                               const std::optional<NodeId>& Parent) {
     return recordNominalTypeNode(nodeIdForNominalTypeNode(TypeName),
                                  MarkedSource, Parent);
   }
@@ -438,8 +439,8 @@ class GraphObserver {
   /// \param Parent if non-null, the parent node of this nominal type.
   /// \return the `NodeId` for the type node.
   virtual NodeId recordNominalTypeNode(
-      const NodeId& TypeNode, const absl::optional<MarkedSource>& MarkedSource,
-      const absl::optional<NodeId>& Parent) = 0;
+      const NodeId& TypeNode, const std::optional<MarkedSource>& MarkedSource,
+      const std::optional<NodeId>& Parent) = 0;
 
   /// \brief Returns a type application node ID.
   /// \note This is the elimination form for the `abs` node.
@@ -553,7 +554,7 @@ class GraphObserver {
   /// \param Node The NodeId of the record.
   /// \param MarkedSource marked source for this interface.
   virtual void recordInterfaceNode(
-      const NodeId& Node, const absl::optional<MarkedSource>& MarkedSource) {}
+      const NodeId& Node, const std::optional<MarkedSource>& MarkedSource) {}
 
   /// \brief Records a node representing a record type (such as a class or
   /// struct).
@@ -563,7 +564,7 @@ class GraphObserver {
   /// \param MarkedSource marked source for this record.
   virtual void recordRecordNode(
       const NodeId& Node, RecordKind Kind, Completeness RecordCompleteness,
-      const absl::optional<MarkedSource>& MarkedSource) {}
+      const std::optional<MarkedSource>& MarkedSource) {}
 
   /// \brief Records a node representing a function.
   /// \param Node The NodeId of the function.
@@ -573,7 +574,7 @@ class GraphObserver {
   virtual void recordFunctionNode(
       const NodeId& Node, Completeness FunctionCompleteness,
       FunctionSubkind Subkind,
-      const absl::optional<MarkedSource>& MarkedSource) {}
+      const std::optional<MarkedSource>& MarkedSource) {}
 
   /// \brief Assigns a USR to node.
   /// \param Node The target node.
@@ -590,20 +591,20 @@ class GraphObserver {
 
   /// \brief Explicitly record marked source for some `Node`.
   virtual void recordMarkedSource(
-      const NodeId& Node, const absl::optional<MarkedSource>& MarkedSource) {}
+      const NodeId& Node, const std::optional<MarkedSource>& MarkedSource) {}
 
   /// \brief Records a node representing a variable in a dependent type
   /// abstraction.
   /// \param Node The `NodeId` of the variable.
   /// \param MarkedSource marked source for this variable.
-  virtual void recordTVarNode(
-      const NodeId& Node, const absl::optional<MarkedSource>& MarkedSource) {}
+  virtual void recordTVarNode(const NodeId& Node,
+                              const std::optional<MarkedSource>& MarkedSource) {
+  }
 
   /// \brief Records a node representing a deferred lookup.
   /// \param Node The `NodeId` of the lookup.
   /// \param Name The `Name` for which resolution has been deferred
-  virtual void recordLookupNode(const NodeId& Node,
-                                const llvm::StringRef& Name) {}
+  virtual void recordLookupNode(const NodeId& Node, llvm::StringRef Name) {}
 
   /// \brief Records a parameter relationship.
   /// \param `ParamOfNode` The node this `ParamNode` is the parameter of.
@@ -648,14 +649,14 @@ class GraphObserver {
   // type.
   virtual void recordVariableNode(
       const NodeId& DeclNode, Completeness Compl, VariableSubkind Subkind,
-      const absl::optional<MarkedSource>& MarkedSource) {}
+      const std::optional<MarkedSource>& MarkedSource) {}
 
   /// \brief Records that a namespace has been declared.
   /// \param DeclNode The identifier for this particular element.
   /// \param MarkedSource marked source for this namespace.
   virtual void recordNamespaceNode(
-      const NodeId& DeclNode,
-      const absl::optional<MarkedSource>& MarkedSource) {}
+      const NodeId& DeclNode, const std::optional<MarkedSource>& MarkedSource) {
+  }
 
   // TODO(zarko): recordExpandedTypeEdge -- records that a type was seen
   // to have some canonical type during a compilation. (This is a 'canonical'
@@ -668,7 +669,7 @@ class GraphObserver {
   /// identified node.
   virtual void recordFullDefinitionRange(
       const Range& SourceRange, const NodeId& DeclId,
-      const absl::optional<NodeId>& DefnId = absl::nullopt) {}
+      const std::optional<NodeId>& DefnId = std::nullopt) {}
 
   /// \brief Should an anchor be stamped
   enum class Stamping { Unstamped, Stamped };
@@ -681,7 +682,7 @@ class GraphObserver {
   /// we would `recordDefinitionBindingRange` on the range for `C`.
   virtual void recordDefinitionBindingRange(
       const Range& BindingRange, const NodeId& DeclId,
-      const absl::optional<NodeId>& DefnId = absl::nullopt,
+      const std::optional<NodeId>& DefnId = std::nullopt,
       Stamping stamping = Stamping::Stamped) {}
 
   /// \brief Records that a particular `Range` contains the declaration
@@ -694,7 +695,7 @@ class GraphObserver {
   /// identified node.
   virtual void recordDefinitionRangeWithBinding(
       const Range& SourceRange, const Range& BindingRange, const NodeId& DeclId,
-      const absl::optional<NodeId>& DefnId = absl::nullopt) {}
+      const std::optional<NodeId>& DefnId = std::nullopt) {}
 
   /// \brief Records that a particular string contains documentation for
   /// the node called `DocId`, possibly containing inner links to other nodes.
@@ -737,19 +738,15 @@ class GraphObserver {
     Speculative
   };
 
-  /// \brief Records that a particular `Range` contains a completion
-  /// for the node named `DefnId`.
-  /// \param SourceRange The source range containing the completion.
+  /// \brief Records that a particular `CompletingNode` completing the node
+  /// named `DefnId`.
   /// \param DefnId The `NodeId` for the node being completed.
-  /// \param Spec the specificity of the relationship beween the `Range`
-  /// and the `DefnId`.
   /// \param CompletingNode The node completing DefnId. This refers to, for
   /// example, the function definition that completes a declaration. In the case
   /// where there are multiple possible nodes, like when the function is
   /// actually a function template, pass the ID for the outer (abs) node.
-  virtual void recordCompletionRange(const Range& SourceRange,
-                                     const NodeId& DefnId,
-                                     const NodeId& CompletingNode) {}
+  virtual void recordCompletion(const NodeId& DefnId,
+                                const NodeId& CompletingNode) {}
 
   /// \brief Records the type of a node as an edge in the graph.
   /// \param TermNodeId The identifier for the node to be given a type.
@@ -827,8 +824,8 @@ class GraphObserver {
   /// that can be blamed for a call at `CallSite`.
   /// \param CallSite The call site that needs a routine to blame.
   /// \return The `NodeId` for the routine to blame.
-  virtual absl::optional<NodeId> recordFileInitializer(const Range& CallSite) {
-    return absl::nullopt;
+  virtual std::optional<NodeId> recordFileInitializer(const Range& CallSite) {
+    return std::nullopt;
   }
 
   /// \brief Records a child-to-parent relationship as an edge in the graph.
@@ -859,9 +856,8 @@ class GraphObserver {
   /// \param Id The ID of the node to record.
   /// \param NodeKind The kind of the node ("google/protobuf")
   /// \param Compl Whether this node is complete.
-  virtual void recordUserDefinedNode(const NodeId& Id,
-                                     const llvm::StringRef& NodeKind,
-                                     Completeness Compl) {}
+  virtual void recordUserDefinedNode(const NodeId& Id, llvm::StringRef NodeKind,
+                                     const std::optional<Completeness> Compl) {}
 
   /// \brief Records a use site for some decl.
   virtual void recordDeclUseLocation(const Range& SourceRange,
@@ -966,8 +962,14 @@ class GraphObserver {
   /// \brief Records that the specified node is deprecated.
   /// \param NodeId The `NodeId` of the deprecated node.
   /// \param Advice A user-readable message about the deprecation (or empty).
-  virtual void recordDeprecated(const NodeId& NodeId,
-                                const llvm::StringRef& Advice) {}
+  virtual void recordDeprecated(const NodeId& NodeId, llvm::StringRef Advice) {}
+
+  /// \brief Records a diagnostic at the given source range
+  /// \param Range The source range
+  /// \param Signature The signature to use for the diagnostic VName
+  /// \param Message The diagnostic message
+  virtual void recordDiagnostic(const Range& Range, llvm::StringRef Signature,
+                                llvm::StringRef Message) {}
 
   /// \brief Called when a new input file is entered.
   ///
@@ -1000,7 +1002,7 @@ class GraphObserver {
   /// source file to the given stream.
   /// \pre Preprocessing is complete.
   virtual void AppendMainSourceFileIdentifierToStream(
-      llvm::raw_ostream& Ostream) {}
+      llvm::raw_ostream& Ostream) const {}
 
   /// \brief Checks whether this `GraphObserver` should emit data for some
   /// `NodeId` and its descendants.
@@ -1088,7 +1090,7 @@ class GraphObserver {
 
   /// \brief Append a string representation of `Range` to `Ostream`.
   virtual void AppendRangeToStream(llvm::raw_ostream& Ostream,
-                                   const Range& Range) {
+                                   const Range& Range) const {
     Range.PhysicalRange.getBegin().print(Ostream, *SourceManager);
     Ostream << "@";
     Range.PhysicalRange.getEnd().print(Ostream, *SourceManager);
@@ -1116,7 +1118,7 @@ class GraphObserver {
 
   clang::SourceManager* getSourceManager() const { return SourceManager; }
 
-  clang::LangOptions* getLangOptions() const { return LangOptions; }
+  const clang::LangOptions* getLangOptions() const { return LangOptions; }
 
   clang::Preprocessor* getPreprocessor() const { return Preprocessor; }
 
@@ -1135,7 +1137,7 @@ class GraphObserver {
 
  protected:
   clang::SourceManager* SourceManager = nullptr;
-  clang::LangOptions* LangOptions = nullptr;
+  const clang::LangOptions* LangOptions = nullptr;
   clang::Preprocessor* Preprocessor = nullptr;
   ProfilingCallback ReportProfileEvent = [](const char*, ProfilingEvent) {};
   HashRecorder* hash_recorder_ = nullptr;
@@ -1150,7 +1152,7 @@ class NullGraphObserver : public GraphObserver {
     std::string StampIdentity(const std::string& Identity) const override {
       return Identity;
     }
-    void* GetClass() const override { return &NullClaimTokenClass; }
+    uintptr_t GetClass() const override { return kNullClaimTokenClass; }
     bool operator==(const ClaimToken& RHS) const override {
       return RHS.GetClass() == GetClass();
     }
@@ -1159,11 +1161,11 @@ class NullGraphObserver : public GraphObserver {
     }
 
    private:
-    static void* NullClaimTokenClass;
+    static inline const uintptr_t kNullClaimTokenClass =
+        reinterpret_cast<uintptr_t>(&kNullClaimTokenClass);
   };
 
-  NodeId getNodeIdForBuiltinType(
-      const llvm::StringRef& Spelling) const override {
+  NodeId getNodeIdForBuiltinType(llvm::StringRef Spelling) const override {
     return NodeId::CreateUncompressed(getDefaultClaimToken(), "");
   }
 
@@ -1174,8 +1176,8 @@ class NullGraphObserver : public GraphObserver {
 
   NodeId recordTypeAliasNode(
       const NodeId& AliasId, const NodeId& AliasedType,
-      const absl::optional<NodeId>& RootAliasedType,
-      const absl::optional<MarkedSource>& MarkedSource) override {
+      const std::optional<NodeId>& RootAliasedType,
+      const std::optional<MarkedSource>& MarkedSource) override {
     return NodeId::CreateUncompressed(getDefaultClaimToken(), "");
   }
 
@@ -1184,8 +1186,8 @@ class NullGraphObserver : public GraphObserver {
   }
 
   NodeId recordNominalTypeNode(const NodeId& TypeNode,
-                               const absl::optional<MarkedSource>& MarkedSource,
-                               const absl::optional<NodeId>& Parent) override {
+                               const std::optional<MarkedSource>& MarkedSource,
+                               const std::optional<NodeId>& Parent) override {
     return NodeId::CreateUncompressed(getDefaultClaimToken(), "");
   }
 
@@ -1270,17 +1272,17 @@ inline bool operator!=(const GraphObserver::Range& L,
   return !(L == R);
 }
 
-// 64 characters that can appear in identifiers (plus $ from Java).
-static constexpr char kSafeEncodingCharacters[] =
-    "abcdefghijklmnopqrstuvwxyz012345"
-    "6789_$ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-static constexpr size_t kBitsPerCharacter = 6;
-static_assert((1 << kBitsPerCharacter) == sizeof(kSafeEncodingCharacters) - 1,
-              "The alphabet is big enough");
-
 /// Returns a compact string representation of the `Hash`.
-static inline std::string HashToString(size_t Hash) {
+inline std::string HashToString(size_t Hash) {
+  // 64 characters that can appear in identifiers (plus $ from Java).
+  static constexpr char kSafeEncodingCharacters[] =
+      "abcdefghijklmnopqrstuvwxyz012345"
+      "6789_$ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  static constexpr size_t kBitsPerCharacter = 6;
+  static_assert((1 << kBitsPerCharacter) == sizeof(kSafeEncodingCharacters) - 1,
+                "The alphabet is big enough");
+
   if (!Hash) {
     return "";
   }

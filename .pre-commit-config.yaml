@@ -7,6 +7,7 @@ repos:
     -   id: trailing-whitespace
         args: ['--markdown-linebreak-ext=md,txt']
     -   id: end-of-file-fixer
+        exclude: '^(kythe/proto/.*_rust_proto/)'
     -   id: check-yaml
     -   id: check-added-large-files
     -   id: check-case-conflict
@@ -33,7 +34,7 @@ repos:
         # Use a verbose Python regex and YAML single-quoted string to make this more legible.
         exclude: '(?x)
             ^(AUTHORS|CONTRIBUTORS|WORKSPACE|LICENSE)$
-            |(^|/)BUILD([^/*]*\.bazel)?$
+            |(^|/)BUILD([^*/]*\.bazel)?$
             |(^|/)requirements\.[^.]+$
             |\.(pb\.go|md|yaml|yml|json|html|bzl|lock|patch|BUILD|WORKSPACE|kzip|tex|tac|bazelproject)$
             |(^|/)(\.[^/]*|go\.mod|go\.sum)$
@@ -59,7 +60,7 @@ repos:
         name: Format w/ clang-format
         description: Formats files using clang-format
         language: system
-        entry: clang-format-11 --style=file -i
+        entry: clang-format-14 --style=file -i
         files: '\.(c|cc|h|i|m|js|proto)$'
     -   id: gofmt
         name: Format w/ gofmt
@@ -94,4 +95,9 @@ repos:
         entry: tools/rust/rustfmt.sh
         types: [rust]
         exclude: '^(kythe/proto/.*|third_party/.*)'
+    -   id: gazelle
+        name: Build Cleaner
+        description: Clean build dependencies with gazelle
+        language: system
+        entry: bazel run //:gazelle
 exclude: '(.*/testdata/.*|third_party/.*|tools/platforms/configs/rbe_default/.*)$'

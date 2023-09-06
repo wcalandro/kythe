@@ -8,7 +8,6 @@ go_binary(
     deps = [
         "//kythe/go/services/filetree",
         "//kythe/go/services/graph",
-        "//kythe/go/services/graphstore",
         "//kythe/go/services/graphstore/proxy",
         "//kythe/go/services/xrefs",
         "//kythe/go/serving/filetree",
@@ -18,6 +17,7 @@ go_binary(
         "//kythe/go/storage/leveldb",
         "//kythe/go/storage/table",
         "//kythe/go/util/flagutil",
-        "@org_golang_x_net//http2:go_default_library",
+        "//kythe/go/util/log",
+        "@org_golang_x_net//http2",
     ],
 )

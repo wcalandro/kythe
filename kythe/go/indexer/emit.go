@@ -22,13 +22,13 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"log"
 	"net/url"
 	"path"
 	"strconv"
 	"strings"
 
 	"kythe.io/kythe/go/extractors/govname"
+	"kythe.io/kythe/go/util/log"
 	"kythe.io/kythe/go/util/metadata"
 	"kythe.io/kythe/go/util/schema/edges"
 	"kythe.io/kythe/go/util/schema/facts"
@@ -58,6 +58,9 @@ type EmitOptions struct {
 	// If true, emit childof edges for an anchor's semantic scope.
 	EmitAnchorScopes bool
 
+	// If true, use the enclosing file for top-level callsite scopes.
+	UseFileAsTopLevelScope bool
+
 	// If set, use this as the base URL for links to godoc.  The import path is
 	// appended to the path of this URL to obtain the target URL to link to.
 	DocBase *url.URL
@@ -72,6 +75,14 @@ type EmitOptions struct {
 	// If set, all stdlib nodes are assigned this corpus. This takes precedence
 	// over UseCompilationCorpusForAll for stdlib nodes.
 	OverrideStdlibCorpus string
+
+	// EmitRefCallOverIdentifier determines whether ref/call anchors are emitted
+	// over function identifiers (or the legacy behavior of over the entire
+	// callsite).
+	EmitRefCallOverIdentifier bool
+
+	// Verbose determines whether verbose logging is enabled.
+	Verbose bool
 }
 
 func (e *EmitOptions) emitMarkedSource() bool {
@@ -86,6 +97,20 @@ func (e *EmitOptions) emitAnchorScopes() bool {
 		return false
 	}
 	return e.EmitAnchorScopes
+}
+
+func (e *EmitOptions) emitRefCallOverIdentifier() bool {
+	if e == nil {
+		return false
+	}
+	return e.EmitRefCallOverIdentifier
+}
+
+func (e *EmitOptions) useFileAsTopLevelScope() bool {
+	if e == nil {
+		return false
+	}
+	return e.UseFileAsTopLevelScope
 }
 
 // shouldEmit reports whether the indexer should emit a node for the given
@@ -108,6 +133,13 @@ func (e *EmitOptions) docURL(pi *PackageInfo) string {
 	u := *e.DocBase
 	u.Path = path.Join(u.Path, pi.ImportPath)
 	return u.String()
+}
+
+func (e *EmitOptions) verbose() bool {
+	if e == nil {
+		return false
+	}
+	return e.Verbose
 }
 
 // An impl records that a type A implements an interface B.
@@ -176,6 +208,8 @@ func (pi *PackageInfo) Emit(ctx context.Context, sink Sink, opts *EmitOptions) e
 				e.visitIndexExpr(n, stack)
 			case *ast.IndexListExpr:
 				e.visitIndexListExpr(n, stack)
+			case *ast.ArrayType:
+				e.visitArrayType(n, stack)
 			}
 			return true
 		}), file)
@@ -186,8 +220,10 @@ func (pi *PackageInfo) Emit(ctx context.Context, sink Sink, opts *EmitOptions) e
 	e.emitSatisfactions()
 
 	// TODO(fromberger): Add diagnostics for type-checker errors.
-	for _, err := range pi.Errors {
-		log.Printf("WARNING: Type resolution error: %v", err)
+	if opts.verbose() {
+		for _, err := range pi.Errors {
+			log.Warningf("Type resolution error: %v", err)
+		}
 	}
 	return e.firstErr
 }
@@ -234,6 +270,14 @@ func exprRefKind(tgt ast.Expr, stack stackFunc, depth int) refKind {
 		if id, ok := tgt.(*ast.Ident); ok && id == parent.Sel {
 			return exprRefKind(parent, stack, depth+1)
 		}
+	case *ast.KeyValueExpr:
+		if tgt == parent.Key {
+			if c, ok := stack(depth + 2).(*ast.CompositeLit); ok {
+				if _, isMap := c.Type.(*ast.MapType); !isMap {
+					return writeRef
+				}
+			}
+		}
 	}
 	return readRef
 }
@@ -247,7 +291,7 @@ func (e *emitter) visitIdent(id *ast.Ident, stack stackFunc) {
 		return
 	}
 
-	if sig, ok := obj.Type().(*types.Signature); ok && sig.RecvTypeParams().Len() > 0 {
+	if sig, ok := obj.Type().(*types.Signature); ok && sig.Recv() != nil && sig.RecvTypeParams().Len() > 0 {
 		// Lookup the original non-instantiated method to reference.
 		if n, ok := deref(sig.Recv().Type()).(*types.Named); ok {
 			f, _, _ := types.LookupFieldOrMethod(n.Origin(), true, obj.Pkg(), obj.Name())
@@ -299,7 +343,12 @@ func (e *emitter) visitIdent(id *ast.Ident, stack stackFunc) {
 		}
 	}
 	if call, ok := isCall(id, obj, stack); ok {
-		callAnchor := e.writeRef(call, target, edges.RefCall)
+		var callAnchor *spb.VName
+		if e.opts.emitRefCallOverIdentifier() {
+			callAnchor = e.writeRef(id, target, edges.RefCall)
+		} else {
+			callAnchor = e.writeRef(call, target, edges.RefCall)
+		}
 
 		// Paint an edge to the function blamed for the call, or if there is
 		// none then to the package initializer.
@@ -375,7 +424,7 @@ func (e *emitter) emitTApp(ms *cpb.MarkedSource, ctorKind string, ctor *spb.VNam
 			e.emitBuiltinMarkedSource(ctor)
 		}
 	}
-	components := []interface{}{ctor}
+	components := []any{ctor}
 	for _, p := range params {
 		components = append(components, p)
 	}
@@ -515,7 +564,7 @@ func (e *emitter) emitType(typ types.Type) *spb.VName {
 	case *types.TypeParam:
 		v = e.pi.ObjectVName(typ.Obj())
 	default:
-		log.Printf("WARNING: unknown type %T: %+v", typ, typ)
+		log.Warningf("unknown type %T: %+v", typ, typ)
 	}
 
 	e.pi.typeVName[typ] = v
@@ -539,7 +588,7 @@ func (e *emitter) visitTuple(t *types.Tuple) []*spb.VName {
 func (e *emitter) visitFuncLit(flit *ast.FuncLit, stack stackFunc) {
 	fi := e.callContext(stack)
 	if fi == nil {
-		log.Panic("Function literal without a context: ", flit)
+		panic(fmt.Sprintf("Function literal without a context: %v", flit))
 	}
 
 	fi.numAnons++
@@ -591,6 +640,11 @@ func (e *emitter) visitTypeSpec(spec *ast.TypeSpec, stack stackFunc) {
 	target := e.mustWriteBinding(spec.Name, "", e.nameContext(stack))
 	e.writeDef(spec, target)
 	e.writeDoc(specComment(spec, stack), target)
+
+	if e.pi.ImportPath == "builtin" {
+		// Ignore everything but defs/docs in special builtin package
+		return
+	}
 
 	mapFields(spec.TypeParams, func(i int, id *ast.Ident) {
 		v := e.writeBinding(id, nodes.TVar, nil)
@@ -683,7 +737,7 @@ func (e *emitter) visitImportSpec(spec *ast.ImportSpec, stack stackFunc) {
 	pkg := e.pi.Dependencies[ipath]
 	target := e.pi.PackageVName[pkg]
 	if target == nil {
-		log.Printf("Unable to resolve import path %q", ipath)
+		log.Warningf("Unable to resolve import path %q", ipath)
 		return
 	}
 
@@ -743,7 +797,7 @@ func (e *emitter) visitCompositeLit(expr *ast.CompositeLit, stack stackFunc) {
 
 	tv, ok := e.pi.Info.Types[expr]
 	if !ok {
-		log.Printf("WARNING: Unable to determine composite literal type (%s)", e.pi.FileSet.Position(expr.Pos()))
+		log.Warningf("Unable to determine composite literal type (%s)", e.pi.FileSet.Position(expr.Pos()))
 		return
 	}
 	sv, ok := deref(tv.Type.Underlying()).(*types.Struct)
@@ -757,7 +811,7 @@ func (e *emitter) visitCompositeLit(expr *ast.CompositeLit, stack stackFunc) {
 		// such cases, don't try to read into the fields of a struct type if
 		// the counts don't line up. The information we emit will still be
 		// correct, we'll just miss some initializers.
-		log.Printf("ERROR: Struct has %d fields but %d initializers (skipping)", n, len(expr.Elts))
+		log.Errorf("Struct has %d fields but %d initializers (skipping)", n, len(expr.Elts))
 		return
 	}
 	for i, elt := range expr.Elts {
@@ -769,7 +823,7 @@ func (e *emitter) visitCompositeLit(expr *ast.CompositeLit, stack stackFunc) {
 		case *ast.KeyValueExpr:
 			f, ok := fieldIndex(t.Key, sv)
 			if !ok {
-				log.Printf("ERROR: Found no field index for %v (skipping)", t.Key)
+				log.Errorf("Found no field index for %v (skipping)", t.Key)
 				continue
 			}
 			e.emitPosRef(t.Value, sv.Field(f), edges.RefInit)
@@ -793,6 +847,11 @@ func (e *emitter) visitIndexListExpr(expr *ast.IndexListExpr, stack stackFunc) {
 	if n, ok := e.pi.Info.TypeOf(expr).(*types.Named); ok && n.TypeArgs().Len() > 0 {
 		e.writeRef(expr, e.emitType(n), edges.Ref)
 	}
+}
+
+// visitArrayType handles references to array types.
+func (e *emitter) visitArrayType(expr *ast.ArrayType, stack stackFunc) {
+	e.emitAnonMembers(expr.Elt)
 }
 
 // emitPosRef emits an anchor spanning loc, pointing to obj.
@@ -1028,7 +1087,7 @@ func isInterface(typ types.Type) bool { _, ok := typ.Underlying().(*types.Interf
 func (e *emitter) check(err error) {
 	if err != nil && e.firstErr == nil {
 		e.firstErr = err
-		log.Printf("ERROR indexing %q: %v", e.pi.ImportPath, err)
+		log.Errorf("indexing %q: %v", e.pi.ImportPath, err)
 	}
 }
 
@@ -1110,25 +1169,28 @@ func (e *emitter) writeRef(origin ast.Node, target *spb.VName, kind string) *spb
 		} else {
 			e.writeEdge(target, rule.VName, rule.EdgeOut)
 		}
+		if rule.Semantic != nil {
+			e.writeFact(target, facts.SemanticGenerated, strings.ToLower(rule.Semantic.String()))
+		}
 		if rule.EdgeOut == edges.Generates && !e.fmeta[file] {
 			e.fmeta[file] = true
 			if rule.VName.Path != "" && target.Path != "" {
-				ruleVName := *rule.VName
-				ruleVName.Signature = ""
-				ruleVName.Language = ""
-				fileTarget := *anchor
-				fileTarget.Signature = ""
-				fileTarget.Language = ""
+				ruleVName := narrowToFileVName(rule.VName)
+				fileTarget := narrowToFileVName(anchor)
 				if rule.Reverse {
-					e.writeEdge(&ruleVName, &fileTarget, rule.EdgeOut)
+					e.writeEdge(ruleVName, fileTarget, rule.EdgeOut)
 				} else {
-					e.writeEdge(&fileTarget, &ruleVName, rule.EdgeOut)
+					e.writeEdge(fileTarget, ruleVName, rule.EdgeOut)
 				}
 			}
 		}
 	})
 
 	return anchor
+}
+
+func narrowToFileVName(v *spb.VName) *spb.VName {
+	return &spb.VName{Corpus: v.GetCorpus(), Root: v.GetRoot(), Path: v.GetPath()}
 }
 
 // mustWriteBinding is as writeBinding, but panics if id does not resolve.  Use
@@ -1158,10 +1220,15 @@ func (e *emitter) writeBinding(id *ast.Ident, kind string, parent *spb.VName) *s
 	obj := e.pi.Info.Defs[id]
 	if obj == nil {
 		loc := e.pi.FileSet.Position(id.Pos())
-		log.Printf("ERROR: Missing definition for id %q at %s", id.Name, loc)
+		log.Errorf("Missing definition for id %q at %s", id.Name, loc)
 		return nil
 	}
 	target := e.pi.ObjectVName(obj)
+	if e.pi.ImportPath == "builtin" && parent != nil && (parent.GetSignature() == "package" || parent.GetSignature() == "") {
+		// Special-case top-level builtin bindings: https://pkg.go.dev/builtin
+		target = govname.Builtin(id.String())
+		kind = "tbuiltin"
+	}
 	if kind != "" {
 		e.writeFact(target, facts.NodeKind, kind)
 	}
@@ -1251,6 +1318,9 @@ func (e *emitter) callContext(stack stackFunc) *funcInfo {
 		case *ast.FuncDecl, *ast.FuncLit:
 			return e.pi.function[p]
 		case *ast.File:
+			if e.opts.useFileAsTopLevelScope() {
+				return &funcInfo{vname: e.pi.FileVName(p)}
+			}
 			fi := e.pi.packageInit[p]
 			if fi == nil {
 				// Lazily emit a virtual node to represent the static
@@ -1464,7 +1534,7 @@ func assignableTo(tctx *types.Context, V, T types.Type) bool {
 
 	vinst, err := types.Instantiate(tctx, V, targs, true)
 	if err != nil {
-		log.Printf("ERROR: type parameters should satisfy their own constraints: %v", err)
+		log.Errorf("type parameters should satisfy their own constraints: %v", err)
 		return false
 	}
 

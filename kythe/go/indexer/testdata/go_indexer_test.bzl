@@ -159,7 +159,7 @@ go_extract = rule(
 def _go_entries(ctx):
     kzip = ctx.attr.kzip.kzip
     indexer = ctx.files._indexer[-1]
-    iargs = [indexer.path]
+    iargs = [indexer.path] + ctx.attr.extra_indexer_args
     output = ctx.outputs.entries
 
     # If the test wants marked source, enable support for it in the indexer.
@@ -171,6 +171,9 @@ def _go_entries(ctx):
 
     if ctx.attr.use_compilation_corpus_for_all:
         iargs.append("-use_compilation_corpus_for_all")
+
+    if ctx.attr.use_file_as_top_level_scope:
+        iargs.append("-use_file_as_top_level_scope")
 
     if ctx.attr.override_stdlib_corpus:
         iargs.append("-override_stdlib_corpus=%s" % ctx.attr.override_stdlib_corpus)
@@ -210,7 +213,9 @@ go_entries = rule(
         # The suffix used to recognize linkage metadata files, if non-empty.
         "metadata_suffix": attr.string(default = ""),
         "use_compilation_corpus_for_all": attr.bool(default = False),
+        "use_file_as_top_level_scope": attr.bool(default = False),
         "override_stdlib_corpus": attr.string(default = ""),
+        "extra_indexer_args": attr.string_list(),
 
         # The location of the Go indexer binary.
         "_indexer": attr.label(
@@ -225,17 +230,21 @@ go_entries = rule(
 def go_verifier_test(
         name,
         entries,
+        srcs = [],
         deps = [],
         size = "small",
         tags = [],
         log_entries = False,
         has_marked_source = False,
+        resolve_code_facts = False,
         allow_duplicates = False):
     opts = ["--use_file_nodes", "--show_goals", "--check_for_singletons", "--goal_regex='\\s*//\\s*-(.*)'"]
     if log_entries:
         opts.append("--show_protos")
     if allow_duplicates or len(deps) > 0:
         opts.append("--ignore_dups")
+    if len(srcs) > 0:
+        opts.append("--nofile_vnames")
 
     # If the test wants marked source, enable support for it in the verifier.
     if has_marked_source:
@@ -245,6 +254,8 @@ def go_verifier_test(
         size = size,
         opts = opts,
         tags = tags,
+        resolve_code_facts = resolve_code_facts,
+        srcs = srcs,
         deps = [entries] + deps,
     )
 
@@ -259,8 +270,10 @@ def _go_indexer(
         emit_anchor_scopes = False,
         allow_duplicates = False,
         use_compilation_corpus_for_all = False,
+        use_file_as_top_level_scope = False,
         override_stdlib_corpus = "",
         metadata_suffix = "",
+        extra_indexer_args = [],
         extra_extractor_args = []):
     if importpath == None:
         importpath = native.package_name() + "/" + name
@@ -284,7 +297,9 @@ def _go_indexer(
         has_marked_source = has_marked_source,
         emit_anchor_scopes = emit_anchor_scopes,
         use_compilation_corpus_for_all = use_compilation_corpus_for_all,
+        use_file_as_top_level_scope = use_file_as_top_level_scope,
         override_stdlib_corpus = override_stdlib_corpus,
+        extra_indexer_args = extra_indexer_args,
         kzip = ":" + kzip,
         metadata_suffix = metadata_suffix,
     )
@@ -302,11 +317,15 @@ def go_indexer_test(
         log_entries = False,
         data = None,
         has_marked_source = False,
+        resolve_code_facts = False,
         emit_anchor_scopes = False,
         allow_duplicates = False,
         use_compilation_corpus_for_all = False,
+        use_file_as_top_level_scope = False,
         override_stdlib_corpus = "",
         metadata_suffix = "",
+        extra_goals = [],
+        extra_indexer_args = [],
         extra_extractor_args = []):
     entries = _go_indexer(
         name = name,
@@ -315,19 +334,23 @@ def go_indexer_test(
         has_marked_source = has_marked_source,
         emit_anchor_scopes = emit_anchor_scopes,
         use_compilation_corpus_for_all = use_compilation_corpus_for_all,
+        use_file_as_top_level_scope = use_file_as_top_level_scope,
         override_stdlib_corpus = override_stdlib_corpus,
         importpath = import_path,
         metadata_suffix = metadata_suffix,
         deps = deps,
+        extra_indexer_args = extra_indexer_args,
         extra_extractor_args = extra_extractor_args,
     )
     go_verifier_test(
         name = name,
+        srcs = extra_goals,
         size = size,
         allow_duplicates = allow_duplicates,
         entries = ":" + entries,
         deps = [dep + "_entries" for dep in deps],
         has_marked_source = has_marked_source,
+        resolve_code_facts = resolve_code_facts,
         log_entries = log_entries,
         tags = tags,
     )

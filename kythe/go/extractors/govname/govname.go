@@ -20,13 +20,14 @@ package govname // import "kythe.io/kythe/go/extractors/govname"
 
 import (
 	"go/build"
-	"log"
 	"path/filepath"
+	"regexp"
 	"strings"
 
-	"golang.org/x/tools/go/vcs"
-
+	"kythe.io/kythe/go/util/log"
 	"kythe.io/kythe/go/util/vnameutil"
+
+	"golang.org/x/tools/go/vcs"
 
 	spb "kythe.io/kythe/proto/storage_go_proto"
 )
@@ -184,16 +185,6 @@ func ForPackage(pkg *build.Package, opts *PackageVNameOptions) *spb.VName {
 	return v
 }
 
-// ForBuiltin returns a VName for a Go built-in with the given signature.
-func ForBuiltin(signature string) *spb.VName {
-	return &spb.VName{
-		Corpus:    GolangCorpus,
-		Language:  Language,
-		Root:      "ref/spec",
-		Signature: signature,
-	}
-}
-
 // ForStandardLibrary returns a VName for a standard library package with the
 // given import path.
 func ForStandardLibrary(importPath string) *spb.VName {
@@ -212,6 +203,8 @@ func IsStandardLibrary(v *spb.VName) bool {
 	return v != nil && (v.Language == "go" || v.Language == "") && v.Corpus == GolangCorpus
 }
 
+var archiveExt = regexp.MustCompile(`\.[xa]$`)
+
 // ImportPath returns the putative Go import path corresponding to v.  The
 // resulting string corresponds to the string literal appearing in source at the
 // import site for the package so named.
@@ -220,7 +213,7 @@ func ImportPath(v *spb.VName, goRoot string) string {
 		return v.Path
 	}
 
-	trimmed := strings.TrimSuffix(v.Path, filepath.Ext(v.Path))
+	trimmed := archiveExt.ReplaceAllString(v.Path, "")
 	if tail, ok := rootRelative(goRoot, trimmed); ok {
 		// Paths under a nonempty GOROOT are treated as if they were standard
 		// library packages even if they are not labelled as "golang.org", so

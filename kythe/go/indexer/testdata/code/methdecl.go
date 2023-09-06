@@ -12,12 +12,15 @@ type w struct{}
 // - LTCode child.3 LTParams
 // - LTCode child.4 LTResult
 // -
-// - LTFunc.pre_text "func "
+// - LTFunc.kind "MODIFIER"
+// - LTFunc.pre_text "func"
+// - LTFunc.post_text " "
 // -
 // - LTRecv.kind "PARAMETER"
 // - LTRecv.pre_text "("
 // - LTRecv.post_text ") "
-// - LTRecv child.0 LTRType
+// - LTRecv child.0 LTLookup
+// - LTLookup.kind "LOOKUP_BY_PARAM"
 // -
 // - LTName child.0 LTContext
 // - LTName child.1 LTIdent
@@ -32,9 +35,6 @@ type w struct{}
 // - LTResult.kind "TYPE"
 // - LTResult child.0 LTReturn
 // - LTReturn.pre_text "bool"
-// -
-// - LTRType.kind "TYPE"
-// - LTRType.pre_text "*w"
 // -
 // - LTContext.kind "CONTEXT"
 // - LTContext.post_child_text "."
@@ -67,7 +67,7 @@ func (rec *w) LessThan(x int) bool {
 }
 
 type decorCommand struct{}
-type Context interface{}
+type Context any
 type FlagSet struct{}
 type API struct{}
 
@@ -80,12 +80,15 @@ type API struct{}
 // - RFCode child.3 RFParams
 // - RFCode child.4 RFResult
 // -
-// - RFFunc.pre_text "func "
+// - RFFunc.kind "MODIFIER"
+// - RFFunc.pre_text "func"
+// - RFFunc.post_text " "
 // -
 // - RFRecv.kind "PARAMETER"
 // - RFRecv.pre_text "("
 // - RFRecv.post_text ") "
-// - RFRecv child.0 RFRType
+// - RFRecv child.0 RFLookup
+// - RFLookup.kind "LOOKUP_BY_PARAM"
 // -
 // - RFName child.0 RFContext
 // - RFName child.1 RFIdent
@@ -100,9 +103,6 @@ type API struct{}
 // - RFResult.kind "TYPE"
 // - RFResult child.0 RFReturn
 // - RFReturn.pre_text "error"
-// -
-// - RFRType.kind "TYPE"
-// - RFRType.pre_text "decorCommand"
 // -
 // - RFContext.kind "CONTEXT"
 // - RFContext.post_child_text "."

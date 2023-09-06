@@ -18,8 +18,9 @@
 #define KYTHE_CXX_COMMON_PROTOBUF_METADATA_FILE_H_
 
 #include <memory>
+#include <sstream>
 
-#include "glog/logging.h"
+#include "absl/log/log.h"
 #include "google/protobuf/descriptor.pb.h"
 #include "kythe/cxx/common/file_vname_generator.h"
 #include "kythe/cxx/common/kythe_metadata_file.h"
@@ -59,9 +60,9 @@ class ProtobufMetadataSupport : public MetadataSupport {
 
   void UseVNameLookup(VNameLookup lookup) override { vname_lookup_ = lookup; }
 
-  void GuessSemantics(bool should_guess_semantics) {
-    should_guess_semantics_ = should_guess_semantics;
-  };
+  void SetAliasesAsWrites(bool set_aliases_as_writes) {
+    set_aliases_as_writes_ = set_aliases_as_writes;
+  }
 
  private:
   /// Returns the VName for the node that should be used between
@@ -77,8 +78,8 @@ class ProtobufMetadataSupport : public MetadataSupport {
     return false;
   };
 
-  /// Guess semantics for proto methods.
-  bool should_guess_semantics_ = false;
+  /// Use write semantics for aliases.
+  bool set_aliases_as_writes_ = false;
 };
 
 }  // namespace kythe

@@ -16,11 +16,11 @@
 #ifndef KYTHE_CXX_EXTRACTOR_BAZEL_EVENT_READER_H_
 #define KYTHE_CXX_EXTRACTOR_BAZEL_EVENT_READER_H_
 
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/types/variant.h"
-#include "glog/logging.h"
 #include "google/protobuf/io/zero_copy_stream.h"
-#include "src/main/java/com/google/devtools/build/lib/buildeventstream/proto/build_event_stream.pb.h"
+#include "third_party/bazel/src/main/java/com/google/devtools/build/lib/buildeventstream/proto/build_event_stream.pb.h"
 
 namespace kythe {
 

@@ -18,6 +18,7 @@
 #define KYTHE_CXX_VERIFIER_H_
 
 #include <functional>
+#include <optional>
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
@@ -57,8 +58,14 @@ class Verifier {
   /// \brief Loads a text proto with goal comments indicating rules and data.
   /// The VName for the source file will be blank.
   /// \param file_data The data to load
+  /// \param path the path to use for anchors
+  /// \param root the root to use for anchors
+  /// \param corpus the corpus to use for anchors
   /// \return false if we failed
-  bool LoadInlineProtoFile(const std::string& file_data);
+  bool LoadInlineProtoFile(const std::string& file_data,
+                           absl::string_view path = "",
+                           absl::string_view root = "",
+                           absl::string_view corpus = "");
 
   /// \brief During verification, ignore duplicate facts.
   void IgnoreDuplicateFacts();
@@ -88,9 +95,18 @@ class Verifier {
   /// \brief Attempts to satisfy all goals from all loaded rule files and facts.
   /// \param inspect function to call on any inspection request
   /// \return true if all goals could be satisfied.
+  bool VerifyAllGoals(std::function<bool(Verifier* context, const Inspection&,
+                                         std::string_view)>
+                          inspect);
+
+  /// \brief Attempts to satisfy all goals from all loaded rule files and facts.
+  /// \param inspect function to call on any inspection request
+  /// \return true if all goals could be satisfied.
   bool VerifyAllGoals(
-      std::function<bool(Verifier* context, const AssertionParser::Inspection&)>
-          inspect);
+      std::function<bool(Verifier* context, const Inspection&)> inspect) {
+    return VerifyAllGoals([&](Verifier* v, const Inspection& i,
+                              std::string_view) { return inspect(v, i); });
+  }
 
   /// \brief Attempts to satisfy all goals from all loaded rule files and facts.
   /// \return true if all goals could be satisfied.
@@ -210,6 +226,11 @@ class Verifier {
   /// \brief Use the fast solver.
   void UseFastSolver(bool value) { use_fast_solver_ = value; }
 
+  /// \brief Gets a string representation of `i`.
+  /// \deprecated Inspection callbacks will be provided with strings and
+  /// will no longer have access to the internal AST.
+  std::string InspectionString(const Inspection& i);
+
  private:
   using InternedVName = std::tuple<Symbol, Symbol, Symbol, Symbol, Symbol>;
 
@@ -226,7 +247,7 @@ class Verifier {
   /// \return null if something went wrong; otherwise, an AstNode corresponding
   /// to a VName of a synthetic node for `code_data`.
   AstNode* ConvertCodeFact(const yy::location& loc,
-                           const google::protobuf::string& code_data);
+                           const std::string& code_data);
 
   /// \brief Converts an encoded /kythe/code/json fact to a form that's useful
   /// to the verifier.
@@ -234,7 +255,7 @@ class Verifier {
   /// \return null if something went wrong; otherwise, an AstNode corresponding
   /// to a VName of a synthetic node for `code_data`.
   AstNode* ConvertCodeJsonFact(const yy::location& loc,
-                               const google::protobuf::string& code_data);
+                               const std::string& code_data);
 
   /// \brief Converts a MarkedSource message to a form that's useful
   /// to the verifier.
@@ -271,8 +292,8 @@ class Verifier {
   /// All known facts.
   Database facts_;
 
-  /// Multimap from anchor offsets to anchor VName tuples.
-  std::multimap<std::pair<size_t, size_t>, AstNode*> anchors_;
+  /// Maps anchor offsets to anchor VName tuples.
+  AnchorMap anchors_;
 
   /// Has the database been prepared?
   bool database_prepared_ = false;
@@ -401,6 +422,9 @@ class Verifier {
 
   /// Identifier for MarkedSource INITIALIZER kinds.
   AstNode* marked_source_initializer_id_;
+
+  /// Identifier for MarkedSource MODIFIER kinds.
+  AstNode* marked_source_modifier_id_;
 
   /// Identifier for MarkedSource PARAMETER_LOOKUP_BY_PARAM kinds.
   AstNode* marked_source_parameter_lookup_by_param_id_;

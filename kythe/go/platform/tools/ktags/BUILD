@@ -10,11 +10,12 @@ go_binary(
         "//kythe/go/services/xrefs",
         "//kythe/go/util/flagutil",
         "//kythe/go/util/kytheuri",
+        "//kythe/go/util/log",
         "//kythe/go/util/schema/edges",
         "//kythe/go/util/schema/facts",
         "//kythe/go/util/schema/nodes",
         "//kythe/proto:graph_go_proto",
         "//kythe/proto:xref_go_proto",
-        "@org_bitbucket_creachadair_stringset//:go_default_library",
+        "@org_bitbucket_creachadair_stringset//:stringset",
     ],
 )

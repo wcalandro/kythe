@@ -6,7 +6,12 @@ package(features = ["layering_check"])
 
 licenses(["notice"])  # Apache 2.0
 
-exports_files(["LICENSE"])
+proto_verifier_test(
+    name = "signatures",
+    srcs = [":signatures_proto"],
+    resolve_code_facts = True,
+    tags = ["basic"],
+)
 
 proto_verifier_test(
     name = "file_node_existence",
@@ -170,6 +175,11 @@ proto_library(
     name = "basic_extend_proto",
     srcs = ["basic/extend.proto"],
     deps = [":other_package_proto"],
+)
+
+proto_library(
+    name = "signatures_proto",
+    srcs = ["basic/signatures.proto"],
 )
 
 proto_library(

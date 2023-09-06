@@ -17,10 +17,12 @@
 #include "kythe/cxx/common/utf8_line_index.h"
 
 #include <algorithm>
+#include <cstring>
+#include <string>
 
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace {

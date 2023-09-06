@@ -333,44 +333,6 @@ class C;
 class C;
 --------------------------------------------------------------------------------
 
-[[completes]]
-completes
-~~~~~~~~~
-
-Brief description::
-  Definition A *completes* declaration B if A fully specifies B, but
-  there may exist other definitions that may also fully specify B.
-Commonly arises from::
-  definitions of forward declarations
-Points from::
-  anchors
-Points toward::
-  semantic nodes with `complete` facts set to `incomplete` or `complete`
-See also::
-  <<record>>, <<sum>>, <<completesuniquely,[completes/uniquely]>>
-
-WARNING: *completes* edges are deprecated.  Their structure should be replaced
-with the one documented for <<completedby>>.
-
-[[completesuniquely]]
-completes/uniquely
-~~~~~~~~~~~~~~~~~~
-
-Brief description::
-  Definition A *completes/uniquely* declaration B if A fully specifies B
-  and there is no other definition that could possibly do so.
-Commonly arises from::
-  definitions of forward declarations
-Points from::
-  anchors
-Points toward::
-  semantic nodes with `complete` facts set to `incomplete` or `complete`
-See also::
-  <<completes>>, <<record>>, <<sum>>
-
-WARNING: *completes/uniquely* edges are deprecated.  Their structure should be
-replaced with the one documented for <<completedby>>.
-
 [[defines]]
 defines
 ~~~~~~~
@@ -664,7 +626,7 @@ Points toward::
 Ordinals are used::
   never
 See also::
-  <<imputes>>
+  <<imputes>>, <<semanticgenerated>>
 
 Tools like RPC interface generators read specification languages and emit
 code in one or more target languages. Although the specification language
@@ -875,6 +837,62 @@ and both A' and B are semantic nodes, the *imputes* edge has the same effect as
 though the edge A' *generates* B were produced. This edge is useful in cases
 where it isn't otherwise possible to produce the VName for A' and where the
 span A in source text can uniquely identify A' by the *defines/binding* edge.
+
+[[narrows]]
+narrows
+~~~~~~~
+
+Brief description::
+  A *narrows* B if A identifies the same target language object as B but is
+  subject to additional constraints.
+Commonly arises from::
+  type refinement
+Points from::
+  variables
+Points toward::
+  variables
+Ordinals are used::
+  never
+See also::
+  <<generates>>, <<typed>>
+
+Some languages allow the types of variables to change over the course of a
+program. For example, a type test can be used to narrow the type of a variable:
+
+[source,java]
+----
+Object x;  // x : Object
+if (x instanceof String) {
+  x;  // x : String
+}
+----
+
+In this example, every `x` refers to the same variable `x`, but the `x` in
+the body of the conditional has a different static type than both the `x`
+in the conditional expression and the `x` declared at the top. This program
+is represented in the following way:
+
+[source,java]
+----
+//- @x defines/binding XObject
+//- XObject typed Object
+Object x;
+//- @x ref XObject
+if (x instanceof String) {
+  //- @x ref XString
+  //- XString narrows XObject
+  //- XString typed String
+  x;
+}
+----
+
+The `x` with type `String` has no `defines/binding` edge, but is associated
+with the `x` with type `Object` with the `narrows` edge. Clients should
+interpret these variables as the same (in the way that nodes associated with
+the `generates` edge are the same), but should prefer facts and edges from the
+particular `x` being identified. In particular, `documents` edges and `code`
+facts should be chosen from the particular node that is the target of a `ref`
+when that node is in a `narrows` relationship.
 
 [[named]]
 named
@@ -1406,7 +1424,7 @@ type S struct {
 var _ = S{17}
 
 // Key-value
-//- @F ref Field
+//- @F ref/writes Field
 //- @"101" ref/init Field
 var _ = S{F: 101}
 --------------------------------------------------------------------------------
@@ -1461,6 +1479,41 @@ Ordinals are used::
 //- !{@BAZ ref/queries _}
 #ifdef BAZ
 #endif
+--------------------------------------------------------------------------------
+
+[[refwrites]]
+ref/writes
+~~~~~~~~~~
+
+Brief description::
+  A *ref/writes* B if A refers to B in an expression that is likely to update
+  the value of B.
+Commonly arises from::
+  assignment, accessor functions
+Points from::
+  anchors
+Points toward::
+  semantic nodes
+Ordinals are used::
+  never
+Notes::
+  This is an experimental definition and is expected to undergo refinement.
+
+[kythe,C++,"Various assignment expressions are writes"]
+--------------------------------------------------------------------------------
+void f() {
+  //- @x defines/binding VarX
+  int x = 0;
+  //- @x ref/writes VarX
+  x = 1;
+  // Some special forms may be supported.
+  //- @#0x ref/writes VarX
+  //- @#1x ref VarX
+  *(&x) = x;
+  // Not all forms are supported.
+  //- @x ref VarX
+  *(&x + 1) = 1;
+}
 --------------------------------------------------------------------------------
 
 [[satisfies]]
@@ -1717,6 +1770,24 @@ Brief description::
 Attached to::
   semantic nodes
 
+[[semanticgenerated]]
+semantic/generated
+~~~~~~~~~~~~~~~~~~
+
+Brief description::
+  A node's *semantic/generated* fact identifies the effect it has on nodes that
+  generate it. Values may include `set`, indicating that this node changes its
+  generator; or `alias`, indicating that it takes an alias to its generator.
+Attached to::
+  semantic nodes
+See also::
+  <<generates>>
+
+When a target language's indexer is processing code with attached metadata
+(e.g., code that was generated by another tool), it may come across definitions
+for which it should emit a `P generates D` edge. If the metadata indicates a
+nontrival semantic, the indexer should attach a `semantic/generated` fact to *D*
+with the relevant string value.
 
 [[tagdeprecated]]
 tag/deprecated

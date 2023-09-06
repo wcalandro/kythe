@@ -15,14 +15,13 @@
  */
 #include "kythe/cxx/common/testutil.h"
 
-#include <unistd.h>
-
 #include <cstdlib>
+#include <string>
 
+#include "absl/log/die_if_null.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
-#include "glog/logging.h"
 
 namespace kythe {
 namespace {
@@ -39,7 +38,7 @@ std::string TestSourceRoot() {
     workspace = kDefaultWorkspace;
   }
   return absl::StrCat(
-      absl::StripSuffix(CHECK_NOTNULL(std::getenv("TEST_SRCDIR")), "/"), "/",
+      absl::StripSuffix(ABSL_DIE_IF_NULL(std::getenv("TEST_SRCDIR")), "/"), "/",
       absl::StripSuffix(workspace, "/"), "/");
 }
 

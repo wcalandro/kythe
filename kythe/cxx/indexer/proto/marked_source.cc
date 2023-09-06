@@ -16,7 +16,10 @@
 
 #include "kythe/cxx/indexer/proto/marked_source.h"
 
+#include <optional>
+
 #include "absl/strings/str_split.h"
+#include "google/protobuf/descriptor.h"
 
 namespace kythe {
 bool GenerateMarkedSourceForDottedName(absl::string_view name,
@@ -46,7 +49,32 @@ bool GenerateMarkedSourceForDottedName(absl::string_view name,
   return true;
 }
 
-absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+template <typename T>
+static std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    absl::string_view kind, const T* descriptor) {
+  MarkedSource ms;
+  auto* mod = ms.add_child();
+  mod->set_kind(MarkedSource::MODIFIER);
+  mod->set_pre_text(kind);
+  mod->set_post_text(" ");
+  if (GenerateMarkedSourceForDottedName(descriptor->full_name(),
+                                        ms.add_child())) {
+    return ms;
+  }
+  return std::nullopt;
+}
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::Descriptor* descriptor) {
+  return GenerateMarkedSourceForDescriptor("message", descriptor);
+}
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::EnumDescriptor* descriptor) {
+  return GenerateMarkedSourceForDescriptor("enum", descriptor);
+}
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
     const google::protobuf::EnumValueDescriptor* descriptor) {
   // EnumValueDescriptor::full_name leaves off the parent enum's name.
   std::string full_name =
@@ -55,10 +83,10 @@ absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
   if (GenerateMarkedSourceForDottedName(full_name, &ms)) {
     return ms;
   }
-  return absl::nullopt;
+  return std::nullopt;
 }
 
-absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
     const google::protobuf::FieldDescriptor* descriptor) {
   std::string full_name;
   if (const google::protobuf::OneofDescriptor* oneof =
@@ -71,7 +99,17 @@ absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
   if (GenerateMarkedSourceForDottedName(full_name, &ms)) {
     return ms;
   }
-  return absl::nullopt;
+  return std::nullopt;
+}
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::ServiceDescriptor* descriptor) {
+  return GenerateMarkedSourceForDescriptor("service", descriptor);
+}
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::MethodDescriptor* descriptor) {
+  return GenerateMarkedSourceForDescriptor("rpc", descriptor);
 }
 
 }  // namespace kythe

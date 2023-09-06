@@ -16,7 +16,13 @@
 
 #include "KytheGraphRecorder.h"
 
-#include "kythe/proto/storage.pb.h"
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "absl/strings/string_view.h"
+#include "kythe/cxx/common/indexing/KytheOutputStream.h"
 
 namespace kythe {
 
@@ -42,8 +48,6 @@ static const std::string* kEdgeKindSpellings[] = {
     new std::string("/kythe/edge/param"),
     new std::string("/kythe/edge/aliases"),
     new std::string("/kythe/edge/aliases/root"),
-    new std::string("/kythe/edge/completes/uniquely"),
-    new std::string("/kythe/edge/completes"),
     new std::string("/kythe/edge/childof"),
     new std::string("/kythe/edge/specializes"),
     new std::string("/kythe/edge/ref/call"),

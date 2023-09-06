@@ -17,7 +17,8 @@
 #ifndef KYTHE_CXX_INDEXER_PROTO_MARKED_SOURCE_H_
 #define KYTHE_CXX_INDEXER_PROTO_MARKED_SOURCE_H_
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "google/protobuf/descriptor.h"
 #include "kythe/cxx/common/indexing/KytheOutputStream.h"
 
@@ -33,20 +34,32 @@ bool GenerateMarkedSourceForDottedName(absl::string_view name,
 // Given a proto descriptor, generates an appropriate code fact. Returns
 // `None` if a code fact couldn't be generated.
 template <typename T>
-absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
     const T* descriptor) {
   MarkedSource ms;
   if (GenerateMarkedSourceForDottedName(descriptor->full_name(), &ms)) {
     return ms;
   }
-  return absl::nullopt;
+  return std::nullopt;
 }
 
-absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::Descriptor* descriptor);
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::EnumDescriptor* descriptor);
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
     const google::protobuf::EnumValueDescriptor* descriptor);
 
-absl::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
     const google::protobuf::FieldDescriptor* descriptor);
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::ServiceDescriptor* descriptor);
+
+std::optional<MarkedSource> GenerateMarkedSourceForDescriptor(
+    const google::protobuf::MethodDescriptor* descriptor);
 
 }  // namespace kythe
 

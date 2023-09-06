@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
+#include <optional>
 #include <regex>
+#include <string_view>
 
-#include "glog/logging.h"
+#include "absl/log/initialize.h"
 #include "google/protobuf/text_format.h"
 #include "google/protobuf/util/json_util.h"
 #include "gtest/gtest.h"
@@ -95,10 +97,26 @@ TEST(VerifierUnitTest, UnescapeStringLiterals) {
   EXPECT_EQ("\\", tmp);
 }
 
-TEST(VerifierUnitTest, TrivialHappyCase) {
+bool CheckEVarInit(std::string_view s) { return s != "nil" && !s.empty(); }
+
+enum class Solver { Old, New };
+
+class VerifierTest : public testing::TestWithParam<Solver> {
+ protected:
+  void SetUp() override {
+    v.UseFastSolver(GetParam() == Solver::Old ? false : true);
+  }
+
   Verifier v;
-  ASSERT_TRUE(v.VerifyAllGoals());
-}
+};
+
+INSTANTIATE_TEST_SUITE_P(Solvers, VerifierTest,
+                         testing::Values(Solver::Old, Solver::New),
+                         [](const auto& p) {
+                           return p.param == Solver::Old ? "old" : "new";
+                         });
+
+TEST_P(VerifierTest, TrivialHappyCase) { ASSERT_TRUE(v.VerifyAllGoals()); }
 
 TEST(VerifierUnitTest, EmptyProtoIsNotWellFormed) {
   Verifier v;
@@ -118,8 +136,7 @@ TEST(VerifierUnitTest, EmptyVnameIsNotWellFormed) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, NoRulesIsOk) {
-  Verifier v;
+TEST_P(VerifierTest, NoRulesIsOk) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
   source { root: "1" }
   fact_name: "testname"
@@ -186,8 +203,7 @@ entries {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EdgesCanSupplyMultipleOrdinals) {
-  Verifier v;
+TEST_P(VerifierTest, EdgesCanSupplyMultipleOrdinals) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
   source { root: "1" }
   edge_kind: "somekind"
@@ -206,8 +222,7 @@ entries {
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EdgesCanSupplyMultipleDotOrdinals) {
-  Verifier v;
+TEST_P(VerifierTest, EdgesCanSupplyMultipleDotOrdinals) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
   source { root: "1" }
   edge_kind: "somekind.42"
@@ -263,8 +278,7 @@ TEST(VerifierUnitTest, OnlyTargetIsWrongDotOrdinal) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, MissingAnchorTextFails) {
-  Verifier v;
+TEST_P(VerifierTest, MissingAnchorTextFails) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines SomeNode
   source { root: "1" }
@@ -273,8 +287,7 @@ TEST(VerifierUnitTest, MissingAnchorTextFails) {
 })"));
 }
 
-TEST(VerifierUnitTest, AmbiguousAnchorTextFails) {
-  Verifier v;
+TEST_P(VerifierTest, AmbiguousAnchorTextFails) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines SomeNode
 # text text
@@ -284,8 +297,7 @@ TEST(VerifierUnitTest, AmbiguousAnchorTextFails) {
 })"));
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarFailsOnEmptyDB) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarFailsOnEmptyDB) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @text defines SomeNode
 # text
@@ -294,8 +306,7 @@ TEST(VerifierUnitTest, GenerateAnchorEvarFailsOnEmptyDB) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, OffsetsVersusRuleBlocks) {
-  Verifier v;
+TEST_P(VerifierTest, OffsetsVersusRuleBlocks) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @text defines SomeNode
 #- @+2text defines SomeNode
@@ -306,16 +317,14 @@ TEST(VerifierUnitTest, OffsetsVersusRuleBlocks) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ZeroRelativeLineReferencesDontWork) {
-  Verifier v;
+TEST_P(VerifierTest, ZeroRelativeLineReferencesDontWork) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @+0text defines SomeNode
 # text
 )"));
 }
 
-TEST(VerifierUnitTest, NoMatchingInsideGoalComments) {
-  Verifier v;
+TEST_P(VerifierTest, NoMatchingInsideGoalComments) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @+1text defines SomeNode
 #- @text defines SomeNode
@@ -323,23 +332,21 @@ TEST(VerifierUnitTest, NoMatchingInsideGoalComments) {
 )"));
 }
 
-TEST(VerifierUnitTest, OutOfBoundsRelativeLineReferencesDontWork) {
-  Verifier v;
+TEST_P(VerifierTest, OutOfBoundsRelativeLineReferencesDontWork) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @+2text defines SomeNode
 # text
 )"));
 }
 
-TEST(VerifierUnitTest, EndOfFileAbsoluteLineReferencesWork) {
-  Verifier v;
+TEST_P(VerifierTest, EndOfFileAbsoluteLineReferencesWork) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @:3text defines SomeNode
 # text
 )"));
 }
 
-TEST(VerifierUnitTest, OutOfBoundsAbsoluteLineReferencesDontWork) {
+TEST_P(VerifierTest, OutOfBoundsAbsoluteLineReferencesDontWork) {
   Verifier v;
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @:4text defines SomeNode
@@ -347,24 +354,21 @@ TEST(VerifierUnitTest, OutOfBoundsAbsoluteLineReferencesDontWork) {
 )"));
 }
 
-TEST(VerifierUnitTest, ZeroAbsoluteLineReferencesDontWork) {
-  Verifier v;
+TEST_P(VerifierTest, ZeroAbsoluteLineReferencesDontWork) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @:0text defines SomeNode
 # text
 )"));
 }
 
-TEST(VerifierUnitTest, SameAbsoluteLineReferencesDontWork) {
-  Verifier v;
+TEST_P(VerifierTest, SameAbsoluteLineReferencesDontWork) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #- @:1text defines SomeNode
 # text
 )"));
 }
 
-TEST(VerifierUnitTest, HistoricalAbsoluteLineReferencesDontWork) {
-  Verifier v;
+TEST_P(VerifierTest, HistoricalAbsoluteLineReferencesDontWork) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(
 #
 #- @:1text defines SomeNode
@@ -372,8 +376,7 @@ TEST(VerifierUnitTest, HistoricalAbsoluteLineReferencesDontWork) {
 )"));
 }
 
-TEST(VerifierUnitTest, ParseLiteralString) {
-  Verifier v;
+TEST_P(VerifierTest, ParseLiteralString) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @"text" defines SomeNode
 # text
@@ -382,8 +385,7 @@ TEST(VerifierUnitTest, ParseLiteralString) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ParseLiteralStringWithSpace) {
-  Verifier v;
+TEST_P(VerifierTest, ParseLiteralStringWithSpace) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @"text txet" defines SomeNode
 # text txet
@@ -392,8 +394,7 @@ TEST(VerifierUnitTest, ParseLiteralStringWithSpace) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ParseLiteralStringWithEscape) {
-  Verifier v;
+TEST_P(VerifierTest, ParseLiteralStringWithEscape) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
 #- @"text \"txet\" ettx" defines SomeNode
 # text "txet" ettx
@@ -402,8 +403,7 @@ TEST(VerifierUnitTest, ParseLiteralStringWithEscape) {
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateStartOffsetEVar) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateStartOffsetEVar) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- ANode.loc/start @^text
 ##text (line 3 column 2 offset 38-42)
@@ -432,8 +432,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateStartOffsetEVarRelativeLine) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateStartOffsetEVarRelativeLine) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- ANode.loc/start @^+22text
 source { root:"1" }
@@ -462,8 +461,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateEndOffsetEVarAbsoluteLine) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateEndOffsetEVarAbsoluteLine) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #-   ANode.loc/end @$:24text
 source { root:"1" }
@@ -492,8 +490,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateEndOffsetEVar) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateEndOffsetEVar) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #-   ANode.loc/end @$text
 ##text (line 3 column 2 offset 38-42)
@@ -522,8 +519,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvar) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvar) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines SomeNode
 ##text (line 3 column 2 offset 38-42)
@@ -547,7 +543,8 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})"));
+})",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
@@ -598,8 +595,7 @@ fact_name: "/kythe/loc/end"
 fact_value: "54"
 })";
 
-TEST(VerifierUnitTest, GenerateAnchorEvarMatchNumber0) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarMatchNumber0) {
   ASSERT_TRUE(v.LoadInlineProtoFile(std::string(R"(entries {
 #- @#0text defines SomeNode
 ##text text text(40-44, 45-49, 50-54)
@@ -609,13 +605,13 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})") + kMatchAnchorSubgraph));
+})") + kMatchAnchorSubgraph,
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarMatchNumber1) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarMatchNumber1) {
   ASSERT_TRUE(v.LoadInlineProtoFile(std::string(R"(entries {
 #- @#1text defines SomeNode
 ##text text text(40-44, 45-49, 50-54)
@@ -625,13 +621,13 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})") + kMatchAnchorSubgraph));
+})") + kMatchAnchorSubgraph,
+                                    "", "3"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarMatchNumber2) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarMatchNumber2) {
   ASSERT_TRUE(v.LoadInlineProtoFile(std::string(R"(entries {
 #- @#2text defines SomeNode
 ##text text text(40-44, 45-49, 50-54)
@@ -641,29 +637,27 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})") + kMatchAnchorSubgraph));
+})") + kMatchAnchorSubgraph,
+                                    "", "4"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarMatchNumber3) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarMatchNumber3) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(entries {
 #- @#3text defines SomeNode
 ##text text text(40-44, 45-49, 50-54)
 })"));
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarMatchNumberNegative1) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarMatchNumberNegative1) {
   ASSERT_FALSE(v.LoadInlineProtoFile(R"(entries {
 #- @#-1text defines SomeNode
 ##text text text(40-44, 45-49, 50-54)
 })"));
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAbsoluteLine) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAbsoluteLine) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @:24text defines SomeNode
 source { root:"1" }
@@ -687,13 +681,13 @@ target { root:"2" }
 fact_name: "/"
 fact_value: ""
 }
-##text (line 24 column 2 offset 387-391))"));
+##text (line 24 column 2 offset 387-391))",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarRelativeLine) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarRelativeLine) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @+22text defines SomeNode
 source { root:"1" }
@@ -717,13 +711,13 @@ target { root:"2" }
 fact_name: "/"
 fact_value: ""
 }
-##text (line 24 column 2 offset 387-391))"));
+##text (line 24 column 2 offset 387-391))",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAtEndOfFile) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAtEndOfFile) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { root:"1" }
 fact_name: "/kythe/node/kind"
@@ -747,13 +741,13 @@ fact_name: "/"
 fact_value: ""
 }
 #- @text defines SomeNode
-##text (line 22 column 2 offset 384-388))"));
+##text (line 22 column 2 offset 384-388))",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAtEndOfFileWithSpaces) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAtEndOfFileWithSpaces) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { root:"1" }
 fact_name: "/kythe/node/kind"
@@ -777,13 +771,13 @@ fact_name: "/"
 fact_value: ""
 }
   #- @text defines SomeNode
-##text (line 22 column 2 offset 386-390))"));
+##text (line 22 column 2 offset 386-390))",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAtEndOfFileWithTrailingRule) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAtEndOfFileWithTrailingRule) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { root:"1" }
 fact_name: "/kythe/node/kind"
@@ -808,13 +802,13 @@ fact_value: ""
 }
 #- @text defines SomeNode
 ##text (line 22 column 2 offset 384-388))
-#- SomeAnchor defines SomeNode)"));
+#- SomeAnchor defines SomeNode)",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAcrossMultipleGoalLines) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAcrossMultipleGoalLines) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines
 #-
@@ -840,13 +834,13 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})"));
+})",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarAcrossMultipleGoalLinesWithSpaces) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarAcrossMultipleGoalLinesWithSpaces) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines
   #-
@@ -872,13 +866,13 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})"));
+})",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarWithBlankLines) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarWithBlankLines) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { root:"1" }
 fact_name: "/kythe/node/kind"
@@ -904,13 +898,13 @@ fact_value: ""
 #- @texx defines SomeNode
 ##texx (line 22 column 2 offset 384-388))
 
-#-  SomeAnchor defines SomeNode)"));
+#-  SomeAnchor defines SomeNode)",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GenerateAnchorEvarWithWhitespaceLines) {
-  Verifier v;
+TEST_P(VerifierTest, GenerateAnchorEvarWithWhitespaceLines) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { root:"1" }
 fact_name: "/kythe/node/kind"
@@ -936,7 +930,8 @@ fact_value: ""
 #- @texx defines SomeNode
 ##texx (line 22 column 2 offset 384-388))
 
-#-  SomeAnchor defines SomeNode)"));
+#-  SomeAnchor defines SomeNode)",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
@@ -1105,8 +1100,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ContentFactPasses) {
-  Verifier v;
+TEST_P(VerifierTest, ContentFactPasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content 42
 source { root:"1" }
@@ -1117,8 +1111,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, BCPLCommentBlocksWrongRule) {
-  Verifier v;
+TEST_P(VerifierTest, BCPLCommentBlocksWrongRule) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- //SomeNode.content 43
 #- SomeNode.content 42
@@ -1130,8 +1123,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, BCPLCommentInStringLiteral) {
-  Verifier v;
+TEST_P(VerifierTest, BCPLCommentInStringLiteral) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content "4//2"
 source { root:"1" }
@@ -1142,8 +1134,7 @@ fact_value: "4//2"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, BCPLCommentTrailingValue) {
-  Verifier v;
+TEST_P(VerifierTest, BCPLCommentTrailingValue) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content 42//x
 source { root:"1" }
@@ -1154,8 +1145,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EmptyBCPLCommentTrailingValue) {
-  Verifier v;
+TEST_P(VerifierTest, EmptyBCPLCommentTrailingValue) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content 42//
 source { root:"1" }
@@ -1166,8 +1156,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EmptyBCPLComment) {
-  Verifier v;
+TEST_P(VerifierTest, EmptyBCPLComment) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #-//
 #- SomeNode.content 43
@@ -1193,8 +1182,7 @@ fact_value: ""
   bool evar_unset = false;
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals(
-      [&call_count, &evar_unset](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
+      [&call_count, &evar_unset](Verifier* cxt, const Inspection& inspection) {
         ++call_count;
         if (inspection.label == "Root" && !inspection.evar->current()) {
           evar_unset = true;
@@ -1220,8 +1208,7 @@ fact_value: ""
   bool evar_unset = false;
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals(
-      [&call_count, &evar_unset](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
+      [&call_count, &evar_unset](Verifier* cxt, const Inspection& inspection) {
         ++call_count;
         if (inspection.label == "Root" && !inspection.evar->current()) {
           evar_unset = true;
@@ -1254,8 +1241,7 @@ fact_value: ""
   bool evar_set = false;
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_FALSE(v.VerifyAllGoals(
-      [&call_count, &evar_set](Verifier* cxt,
-                               const AssertionParser::Inspection& inspection) {
+      [&call_count, &evar_set](Verifier* cxt, const Inspection& inspection) {
         ++call_count;
         if (inspection.label == "Root" && inspection.evar->current()) {
           if (Identifier* identifier =
@@ -1293,8 +1279,7 @@ fact_value: ""
   bool evar_set = false;
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_FALSE(v.VerifyAllGoals(
-      [&call_count, &evar_set](Verifier* cxt,
-                               const AssertionParser::Inspection& inspection) {
+      [&call_count, &evar_set](Verifier* cxt, const Inspection& inspection) {
         ++call_count;
         if (inspection.label == "Root" && inspection.evar->current()) {
           if (Identifier* identifier =
@@ -1324,8 +1309,7 @@ fact_value: ""
   bool evar_set = false;
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_FALSE(v.VerifyAllGoals(
-      [&call_count, &evar_set](Verifier* cxt,
-                               const AssertionParser::Inspection& inspection) {
+      [&call_count, &evar_set](Verifier* cxt, const Inspection& inspection) {
         ++call_count;
         if (inspection.label == "Root" && inspection.evar->current()) {
           if (Identifier* identifier =
@@ -1341,8 +1325,7 @@ fact_value: ""
   EXPECT_TRUE(evar_set);
 }
 
-TEST(VerifierUnitTest, GroupFactFails) {
-  Verifier v;
+TEST_P(VerifierTest, GroupFactFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- { SomeNode.content 43 }
 source { root:"1" }
@@ -1354,8 +1337,11 @@ fact_value: "42"
 }
 
 // Slightly brittle in that it depends on the order we try facts.
-TEST(VerifierUnitTest, FailWithCutInGroups) {
-  Verifier v;
+TEST_P(VerifierTest, FailWithCutInGroups) {
+  if (GetParam() == Solver::New) {
+    // The new solver will pick the second entry.
+    GTEST_SKIP();
+  }
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- { SomeNode.content SomeValue }
 #- { SomeNode.content 43 }
@@ -1373,8 +1359,11 @@ fact_value: "43"
 }
 
 // Slightly brittle in that it depends on the order we try facts.
-TEST(VerifierUnitTest, FailWithCut) {
-  Verifier v;
+TEST_P(VerifierTest, FailWithCut) {
+  if (GetParam() == Solver::New) {
+    // The new solver will pick the second entry.
+    GTEST_SKIP();
+  }
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content SomeValue
 #- { SomeNode.content 43 }
@@ -1391,8 +1380,7 @@ fact_value: "43"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, PassWithoutCut) {
-  Verifier v;
+TEST_P(VerifierTest, PassWithoutCut) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content SomeValue
 #- SomeNode.content 43
@@ -1409,8 +1397,7 @@ fact_value: "43"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, GroupFactPasses) {
-  Verifier v;
+TEST_P(VerifierTest, GroupFactPasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- { SomeNode.content 42 }
 source { root:"1" }
@@ -1421,8 +1408,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, CompoundGroups) {
-  Verifier v;
+TEST_P(VerifierTest, CompoundGroups) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content 42
 #- !{ OtherNode.content 43
@@ -1442,8 +1428,7 @@ fact_value: "43"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ConjunctionInsideNegatedGroupPassFail) {
-  Verifier v;
+TEST_P(VerifierTest, ConjunctionInsideNegatedGroupPassFail) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- !{ SomeNode.content 42
 #-    OtherNode.content 44 }
@@ -1461,8 +1446,7 @@ fact_value: "43"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ConjunctionInsideNegatedGroupPassPass) {
-  Verifier v;
+TEST_P(VerifierTest, ConjunctionInsideNegatedGroupPassPass) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- !{ SomeNode.content 42
 #-    OtherNode.content 43 }
@@ -1480,8 +1464,7 @@ fact_value: "43"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, AntiContentFactFails) {
-  Verifier v;
+TEST_P(VerifierTest, AntiContentFactFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- !{ SomeNode.content 42 }
 source { root:"1" }
@@ -1492,8 +1475,7 @@ fact_value: "42"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, AntiContentFactPasses) {
-  Verifier v;
+TEST_P(VerifierTest, AntiContentFactPasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- !{ SomeNode.content 43 }
 source { root:"1" }
@@ -1504,8 +1486,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, SpacesAreOkay) {
-  Verifier v;
+TEST_P(VerifierTest, SpacesAreOkay) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
    	 #- SomeNode.content 42
 source { root:"1" }
@@ -1516,8 +1497,7 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, ContentFactFails) {
-  Verifier v;
+TEST_P(VerifierTest, ContentFactFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.content 42
 source { root:"1" }
@@ -1528,8 +1508,7 @@ fact_value: "43"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, PercentContentFactFails) {
-  Verifier v;
+TEST_P(VerifierTest, PercentContentFactFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeNode.%content 42
 source { root:"1" }
@@ -1540,8 +1519,7 @@ fact_value: "43"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, SpacesDontDisableRules) {
-  Verifier v;
+TEST_P(VerifierTest, SpacesDontDisableRules) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
    	 #- SomeNode.content 42
 source { root:"1" }
@@ -1552,8 +1530,7 @@ fact_value: "43"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, DefinesEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, DefinesEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor defines SomeNode
 source { root:"1" }
@@ -1566,8 +1543,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, HashDefinesEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, HashDefinesEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor #defines SomeNode
 source { root:"1" }
@@ -1580,8 +1556,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, HashFullDefinesEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, HashFullDefinesEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor #/kythe/edge/defines SomeNode
 source { root:"1" }
@@ -1594,8 +1569,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, PercentDefinesEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, PercentDefinesEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor %defines SomeNode
 source { root:"1" }
@@ -1608,8 +1582,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, PercentFullDefinesEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, PercentFullDefinesEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor %/kythe/edge/defines SomeNode
 source { root:"1" }
@@ -1622,8 +1595,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgePasses) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgePasses) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1636,8 +1608,7 @@ fact_value: "1"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgePassesDotOrdinal) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgePassesDotOrdinal) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1649,8 +1620,7 @@ fact_name: "/"
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeBadDotOrdinalNoNumber) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeBadDotOrdinalNoNumber) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1662,8 +1632,7 @@ fact_name: "/"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeBadDotOrdinalOnlyDot) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeBadDotOrdinalOnlyDot) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1675,8 +1644,7 @@ fact_name: "/"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeBadDotOrdinalNoEdge) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeBadDotOrdinalNoEdge) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1688,8 +1656,7 @@ fact_name: "/"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeFailsOnWrongOrdinal) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeFailsOnWrongOrdinal) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1702,8 +1669,7 @@ fact_value: "42"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeFailsOnWrongDotOrdinal) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeFailsOnWrongDotOrdinal) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.1 SomeNode
 source { root:"1" }
@@ -1715,8 +1681,7 @@ fact_name: "/"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeFailsOnMissingOrdinalInGoal) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeFailsOnMissingOrdinalInGoal) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param SomeNode
 source { root:"1" }
@@ -1729,8 +1694,7 @@ fact_value: "42"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeFailsOnMissingDotOrdinalInGoal) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeFailsOnMissingDotOrdinalInGoal) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param SomeNode
 source { root:"1" }
@@ -1742,8 +1706,7 @@ fact_name: "/"
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IsParamEdgeFailsOnMissingOrdinalInFact) {
-  Verifier v;
+TEST_P(VerifierTest, IsParamEdgeFailsOnMissingOrdinalInFact) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeParam is_param.42 SomeNode
 source { root:"1" }
@@ -1756,8 +1719,7 @@ fact_value: ""
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EvarsShareANamespace) {
-  Verifier v;
+TEST_P(VerifierTest, EvarsShareANamespace) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor defines SomeNode
 #- SomeNode defines SomeAnchor
@@ -1771,8 +1733,7 @@ fact_value: ""
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, DefinesEdgePassesSymmetry) {
-  Verifier v;
+TEST_P(VerifierTest, DefinesEdgePassesSymmetry) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor defines SomeNode
 source { root:"1" }
@@ -1794,8 +1755,7 @@ fact_value: ""
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, EvarsStillShareANamespace) {
-  Verifier v;
+TEST_P(VerifierTest, EvarsStillShareANamespace) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor defines SomeNode
 source { root:"1" }
@@ -1828,8 +1788,8 @@ fact_name: "/"
 fact_value: ""
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
-  ASSERT_FALSE(v.VerifyAllGoals(
-      [](Verifier* cxt, const AssertionParser::Inspection&) { return false; }));
+  ASSERT_FALSE(
+      v.VerifyAllGoals([](Verifier* cxt, const Inspection&) { return false; }));
 }
 
 TEST(VerifierUnitTest, EvarsAreSharedAcrossInputFiles) {
@@ -1849,8 +1809,7 @@ fact_value: ""
   EVar* seen_evar = nullptr;
   int seen_count = 0;
   ASSERT_TRUE(v.VerifyAllGoals(
-      [&seen_evar, &seen_count](Verifier* cxt,
-                                const AssertionParser::Inspection& inspection) {
+      [&seen_evar, &seen_count](Verifier* cxt, const Inspection& inspection) {
         if (inspection.label == "SomeAnchor") {
           ++seen_count;
           if (seen_evar == nullptr) {
@@ -1876,8 +1835,8 @@ fact_name: "/"
 fact_value: ""
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [](Verifier* cxt, const AssertionParser::Inspection&) { return true; }));
+  ASSERT_TRUE(
+      v.VerifyAllGoals([](Verifier* cxt, const Inspection&) { return true; }));
 }
 
 TEST(VerifierUnitTest, InspectionHappensMoreThanOnceAndThatsOk) {
@@ -1893,16 +1852,15 @@ fact_value: ""
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
   size_t inspect_count = 0;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&inspect_count](Verifier* cxt, const AssertionParser::Inspection&) {
+  ASSERT_TRUE(
+      v.VerifyAllGoals([&inspect_count](Verifier* cxt, const Inspection&) {
         ++inspect_count;
         return true;
       }));
   ASSERT_EQ(2, inspect_count);
 }
 
-TEST(VerifierUnitTest, InspectionCalledCorrectly) {
-  Verifier v;
+TEST_P(VerifierTest, InspectionCalledCorrectly) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor? defines SomeNode
 source { root:"1" }
@@ -1915,39 +1873,21 @@ fact_value: ""
   size_t call_count = 0;
   bool key_was_someanchor = false;
   bool evar_init = false;
-  bool evar_init_to_correct_vname = false;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&call_count, &key_was_someanchor, &evar_init_to_correct_vname](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        ++call_count;
-        // Check for equivalence to `App(#vname, (#"", #"", 1, #"", #""))`
-        key_was_someanchor = (inspection.label == "SomeAnchor");
-        if (AstNode* node = inspection.evar->current()) {
-          if (App* app = node->AsApp()) {
-            if (Tuple* tuple = app->rhs()->AsTuple()) {
-              if (app->lhs() == cxt->vname_id() && tuple->size() == 5 &&
-                  tuple->element(0) == cxt->empty_string_id() &&
-                  tuple->element(1) == cxt->empty_string_id() &&
-                  tuple->element(3) == cxt->empty_string_id() &&
-                  tuple->element(4) == cxt->empty_string_id()) {
-                if (Identifier* identifier =
-                        tuple->element(2)->AsIdentifier()) {
-                  evar_init_to_correct_vname =
-                      cxt->symbol_table()->text(identifier->symbol()) == "1";
-                }
-              }
-            }
-          }
-        }
-        return true;
-      }));
+  std::string istr;
+  ASSERT_TRUE(v.VerifyAllGoals([&](Verifier* cxt, const Inspection& inspection,
+                                   std::optional<std::string_view> s) {
+    ++call_count;
+    // Check for equivalence to `App(#vname, (#"", #"", 1, #"", #""))`
+    key_was_someanchor = (inspection.label == "SomeAnchor");
+    istr = s ? *s : v.InspectionString(inspection);
+    return true;
+  }));
   EXPECT_EQ(1, call_count);
+  EXPECT_EQ(R"(vname("", "", "1", "", ""))", istr);
   EXPECT_TRUE(key_was_someanchor);
-  EXPECT_TRUE(evar_init_to_correct_vname);
 }
 
-TEST(VerifierUnitTest, FactsAreNotLinear) {
-  Verifier v;
+TEST_P(VerifierTest, FactsAreNotLinear) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor? defines SomeNode?
 #- AnotherAnchor? defines AnotherNode?
@@ -1958,28 +1898,22 @@ fact_name: "/"
 fact_value: ""
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
-  AstNode* some_anchor = nullptr;
-  AstNode* some_node = nullptr;
-  AstNode* another_anchor = nullptr;
-  AstNode* another_node = nullptr;
+  std::string some_anchor, some_node, another_anchor, another_node;
   ASSERT_TRUE(v.VerifyAllGoals(
       [&some_anchor, &some_node, &another_anchor, &another_node](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (inspection.label == "SomeAnchor") {
-            some_anchor = node;
-          } else if (inspection.label == "SomeNode") {
-            some_node = node;
-          } else if (inspection.label == "AnotherAnchor") {
-            another_anchor = node;
-          } else if (inspection.label == "AnotherNode") {
-            another_node = node;
-          } else {
-            return false;
-          }
-          return true;
+          Verifier* cxt, const Inspection& inspection, std::string_view s) {
+        if (inspection.label == "SomeAnchor") {
+          some_anchor = s;
+        } else if (inspection.label == "SomeNode") {
+          some_node = s;
+        } else if (inspection.label == "AnotherAnchor") {
+          another_anchor = s;
+        } else if (inspection.label == "AnotherNode") {
+          another_node = s;
+        } else {
+          return false;
         }
-        return false;
+        return true;
       }));
   EXPECT_EQ(some_anchor, another_anchor);
   EXPECT_EQ(some_node, another_node);
@@ -1987,8 +1921,7 @@ fact_value: ""
   EXPECT_NE(another_anchor, another_node);
 }
 
-TEST(VerifierUnitTest, OrdinalsGetUnified) {
-  Verifier v;
+TEST_P(VerifierTest, OrdinalsGetUnified) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- SomeAnchor is_param.Ordinal? SomeNode
 source { root:"1" }
@@ -2005,16 +1938,11 @@ fact_value: "42"
   ASSERT_TRUE(v.VerifyAllGoals(
       [&call_count, &key_was_ordinal, &evar_init,
        &evar_init_to_correct_ordinal](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
+          Verifier* cxt, const Inspection& inspection, std::string_view s) {
         ++call_count;
         key_was_ordinal = (inspection.label == "Ordinal");
-        if (AstNode* node = inspection.evar->current()) {
-          evar_init = true;
-          if (Identifier* identifier = node->AsIdentifier()) {
-            evar_init_to_correct_ordinal =
-                cxt->symbol_table()->text(identifier->symbol()) == "42";
-          }
-        }
+        evar_init = CheckEVarInit(s);
+        evar_init_to_correct_ordinal = s == "\"42\"";
         return true;
       }));
   EXPECT_EQ(1, call_count);
@@ -2039,16 +1967,11 @@ fact_name: "/"
   ASSERT_TRUE(v.VerifyAllGoals(
       [&call_count, &key_was_ordinal, &evar_init,
        &evar_init_to_correct_ordinal](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
+          Verifier* cxt, const Inspection& inspection, std::string_view s) {
         ++call_count;
         key_was_ordinal = (inspection.label == "Ordinal");
-        if (AstNode* node = inspection.evar->current()) {
-          evar_init = true;
-          if (Identifier* identifier = node->AsIdentifier()) {
-            evar_init_to_correct_ordinal =
-                cxt->symbol_table()->text(identifier->symbol()) == "42";
-          }
-        }
+        evar_init = CheckEVarInit(s);
+        evar_init_to_correct_ordinal = s == "\"42\"";
         return true;
       }));
   EXPECT_EQ(1, call_count);
@@ -2056,8 +1979,7 @@ fact_name: "/"
   EXPECT_TRUE(evar_init_to_correct_ordinal);
 }
 
-TEST(VerifierUnitTest, EvarsAndIdentifiersCanHaveTheSameText) {
-  Verifier v;
+TEST_P(VerifierTest, EvarsAndIdentifiersCanHaveTheSameText) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- vname(Signature?, "Signature", Root?, Path?, Language?) defines SomeNode
 source {
@@ -2079,21 +2001,12 @@ fact_value: ""
   bool language = false;
   ASSERT_TRUE(v.VerifyAllGoals(
       [&signature, &root, &path, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if (ident_content == inspection.label) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Root") root = true;
-              if (inspection.label == "Path") path = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
-        }
-        return false;
+          Verifier* cxt, const Inspection& inspection, std::string_view s) {
+        if (inspection.label == "Signature") signature = s == "Signature";
+        if (inspection.label == "Root") root = s == "Root";
+        if (inspection.label == "Path") path = s == "Path";
+        if (inspection.label == "Language") language = s == "Language";
+        return true;
       }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(root);
@@ -2101,8 +2014,7 @@ fact_value: ""
   EXPECT_TRUE(language);
 }
 
-TEST(VerifierUnitTest, EvarsAndIdentifiersCanHaveTheSameTextAndAreNotRebound) {
-  Verifier v;
+TEST_P(VerifierTest, EvarsAndIdentifiersCanHaveTheSameTextAndAreNotRebound) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- vname(Signature?, "Signature", Signature?, Path?, Language?) defines SomeNode
 source {
@@ -2123,28 +2035,22 @@ fact_value: ""
   bool language = false;
   ASSERT_TRUE(v.VerifyAllGoals(
       [&signature, &path, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if (ident_content == inspection.label) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Path") path = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
+          Verifier* cxt, const Inspection& inspection, std::string_view s) {
+        if (s == inspection.label) {
+          if (inspection.label == "Signature") signature = true;
+          if (inspection.label == "Path") path = true;
+          if (inspection.label == "Language") language = true;
+        } else {
+          return false;
         }
-        return false;
+        return true;
       }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(path);
   EXPECT_TRUE(language);
 }
 
-TEST(VerifierUnitTest, EqualityConstraintWorks) {
-  Verifier v;
+TEST_P(VerifierTest, EqualityConstraintWorks) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- One is vname(_,_,Two? = "2",_,_)
 source { root:"1" }
@@ -2161,18 +2067,12 @@ target { root:"3" }
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals(
-      [](Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            return cxt->symbol_table()->text(ident->symbol()) == "2";
-          }
-        }
-        return false;
+      [](Verifier* cxt, const Inspection& inspection, absl::string_view s) {
+        return (inspection.label == "Two" && s == "\"2\"");
       }));
 }
 
-TEST(VerifierUnitTest, EqualityConstraintWorksOnAnchors) {
-  Verifier v;
+TEST_P(VerifierTest, EqualityConstraintWorksOnAnchors) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- Tx?=@text defines SomeNode
 ##text (line 3 column 2 offset 42-46)
@@ -2196,18 +2096,54 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})"));
+})",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals(
-      [](Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        return (inspection.label == "Tx" &&
-                inspection.evar->current() != nullptr);
+      [](Verifier* cxt, const Inspection& inspection, std::string_view s) {
+        return (inspection.label == "Tx" && !s.empty());
+      }));
+}
+
+TEST_P(VerifierTest, EqualityConstraintWorksOnAnchorsRev) {
+  if (GetParam() == Solver::New) {
+    // TODO: Turns out that we do need to propagate (type) equality constraints.
+    GTEST_SKIP();
+  }
+  ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
+#- @text=Tx? defines SomeNode
+##text (line 3 column 2 offset 42-46)
+source { root:"1" }
+fact_name: "/kythe/node/kind"
+fact_value: "anchor"
+}
+entries {
+source { root:"1" }
+fact_name: "/kythe/loc/start"
+fact_value: "42"
+}
+entries {
+source { root:"1" }
+fact_name: "/kythe/loc/end"
+fact_value: "46"
+}
+entries {
+source { root:"1" }
+edge_kind: "/kythe/edge/defines"
+target { root:"2" }
+fact_name: "/"
+fact_value: ""
+})",
+                                    "", "1"));
+  ASSERT_TRUE(v.PrepareDatabase());
+  ASSERT_TRUE(v.VerifyAllGoals(
+      [](Verifier* cxt, const Inspection& inspection, std::string_view s) {
+        return (inspection.label == "Tx" && !s.empty());
       }));
 }
 
 // It's possible to match Tx against {root:7}:
-TEST(VerifierUnitTest, EqualityConstraintWorksOnAnchorsPossibleConstraint) {
-  Verifier v;
+TEST_P(VerifierTest, EqualityConstraintWorksOnAnchorsPossibleConstraint) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- @text defines SomeNode
 ##text (line 3 column 2 offset 38-42)
@@ -2237,7 +2173,8 @@ edge_kind: "/kythe/edge/defines"
 target { root:"2" }
 fact_name: "/"
 fact_value: ""
-})"));
+})",
+                                    "", "1"));
   ASSERT_TRUE(v.PrepareDatabase());
   ASSERT_TRUE(v.VerifyAllGoals());
 }
@@ -2297,19 +2234,17 @@ edge_kind: "/kythe/edge/is"
 target { root:"3" }
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [](Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            return cxt->symbol_table()->text(ident->symbol()) == "3";
-          }
-        }
-        return false;
-      }));
+  ASSERT_TRUE(v.VerifyAllGoals([](Verifier* cxt, const Inspection& inspection) {
+    if (AstNode* node = inspection.evar->current()) {
+      if (Identifier* ident = node->AsIdentifier()) {
+        return cxt->symbol_table()->text(ident->symbol()) == "3";
+      }
+    }
+    return false;
+  }));
 }
 
-TEST(VerifierUnitTest, EqualityConstraintFails) {
-  Verifier v;
+TEST_P(VerifierTest, EqualityConstraintFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- One is vname(_,_,Two = "2",_,_)
 #- One is vname(_,_,Three = "3",_,_)
@@ -2330,8 +2265,7 @@ target { root:"3" }
   ASSERT_FALSE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, IdentityEqualityConstraintSucceeds) {
-  Verifier v;
+TEST_P(VerifierTest, IdentityEqualityConstraintSucceeds) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- One is vname(_,_,Two = Two,_,_)
 source { root:"1" }
@@ -2350,8 +2284,7 @@ target { root:"3" }
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-TEST(VerifierUnitTest, TransitiveIdentityEqualityConstraintFails) {
-  Verifier v;
+TEST_P(VerifierTest, TransitiveIdentityEqualityConstraintFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- One is vname(_,_,Two = Dos = Two,_,_)
 source { root:"1" }
@@ -2367,11 +2300,15 @@ edge_kind: "/kythe/edge/is"
 target { root:"3" }
 })"));
   ASSERT_TRUE(v.PrepareDatabase());
-  ASSERT_FALSE(v.VerifyAllGoals());
+  if (GetParam() == Solver::New) {
+    // The new solver can handle cycles in equality constraints.
+    ASSERT_TRUE(v.VerifyAllGoals());
+  } else {
+    ASSERT_FALSE(v.VerifyAllGoals());
+  }
 }
 
-TEST(VerifierUnitTest, GraphEqualityConstraintFails) {
-  Verifier v;
+TEST_P(VerifierTest, GraphEqualityConstraintFails) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 #- One is Two = vname(_,_,Two,_,_)
 source { root:"1" }
@@ -2412,25 +2349,24 @@ fact_value: ""
   bool root = false;
   bool path = false;
   bool language = false;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&signature, &corpus, &root, &path, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if (ident_content == inspection.label) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Corpus") corpus = true;
-              if (inspection.label == "Root") root = true;
-              if (inspection.label == "Path") path = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
+  ASSERT_TRUE(v.VerifyAllGoals([&signature, &corpus, &root, &path, &language](
+                                   Verifier* cxt,
+                                   const Inspection& inspection) {
+    if (AstNode* node = inspection.evar->current()) {
+      if (Identifier* ident = node->AsIdentifier()) {
+        std::string ident_content = cxt->symbol_table()->text(ident->symbol());
+        if (ident_content == inspection.label) {
+          if (inspection.label == "Signature") signature = true;
+          if (inspection.label == "Corpus") corpus = true;
+          if (inspection.label == "Root") root = true;
+          if (inspection.label == "Path") path = true;
+          if (inspection.label == "Language") language = true;
         }
-        return false;
-      }));
+      }
+      return true;
+    }
+    return false;
+  }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(corpus);
   EXPECT_TRUE(root);
@@ -2460,27 +2396,25 @@ fact_value: ""
   bool root = false;
   bool path = false;
   bool language = false;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&signature, &corpus, &root, &path, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if ((inspection.label != "Path" &&
-                 ident_content == inspection.label) ||
-                (inspection.label == "_" && ident_content == "Path")) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Corpus") corpus = true;
-              if (inspection.label == "Root") root = true;
-              if (inspection.label == "_") path = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
+  ASSERT_TRUE(v.VerifyAllGoals([&signature, &corpus, &root, &path, &language](
+                                   Verifier* cxt,
+                                   const Inspection& inspection) {
+    if (AstNode* node = inspection.evar->current()) {
+      if (Identifier* ident = node->AsIdentifier()) {
+        std::string ident_content = cxt->symbol_table()->text(ident->symbol());
+        if ((inspection.label != "Path" && ident_content == inspection.label) ||
+            (inspection.label == "_" && ident_content == "Path")) {
+          if (inspection.label == "Signature") signature = true;
+          if (inspection.label == "Corpus") corpus = true;
+          if (inspection.label == "Root") root = true;
+          if (inspection.label == "_") path = true;
+          if (inspection.label == "Language") language = true;
         }
-        return false;
-      }));
+      }
+      return true;
+    }
+    return false;
+  }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(corpus);
   EXPECT_TRUE(root);
@@ -2509,24 +2443,23 @@ fact_value: ""
   bool root = false;
   bool path = false;
   bool language = false;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&signature, &corpus, &root, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if (ident_content == inspection.label) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Corpus") corpus = true;
-              if (inspection.label == "Root") root = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
+  ASSERT_TRUE(v.VerifyAllGoals([&signature, &corpus, &root, &language](
+                                   Verifier* cxt,
+                                   const Inspection& inspection) {
+    if (AstNode* node = inspection.evar->current()) {
+      if (Identifier* ident = node->AsIdentifier()) {
+        std::string ident_content = cxt->symbol_table()->text(ident->symbol());
+        if (ident_content == inspection.label) {
+          if (inspection.label == "Signature") signature = true;
+          if (inspection.label == "Corpus") corpus = true;
+          if (inspection.label == "Root") root = true;
+          if (inspection.label == "Language") language = true;
         }
-        return false;
-      }));
+      }
+      return true;
+    }
+    return false;
+  }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(corpus);
   EXPECT_TRUE(root);
@@ -2554,28 +2487,25 @@ fact_value: ""
   bool root = false;
   bool path = false;
   bool language = false;
-  ASSERT_TRUE(v.VerifyAllGoals(
-      [&signature, &corpus, &root, &path, &language](
-          Verifier* cxt, const AssertionParser::Inspection& inspection) {
-        if (AstNode* node = inspection.evar->current()) {
-          if (Identifier* ident = node->AsIdentifier()) {
-            std::string ident_content =
-                cxt->symbol_table()->text(ident->symbol());
-            if ((inspection.label != "Path" &&
-                 ident_content == inspection.label) ||
-                (inspection.label == "Path" &&
-                 ident == cxt->empty_string_id())) {
-              if (inspection.label == "Signature") signature = true;
-              if (inspection.label == "Corpus") corpus = true;
-              if (inspection.label == "Root") root = true;
-              if (inspection.label == "Path") path = true;
-              if (inspection.label == "Language") language = true;
-            }
-          }
-          return true;
+  ASSERT_TRUE(v.VerifyAllGoals([&signature, &corpus, &root, &path, &language](
+                                   Verifier* cxt,
+                                   const Inspection& inspection) {
+    if (AstNode* node = inspection.evar->current()) {
+      if (Identifier* ident = node->AsIdentifier()) {
+        std::string ident_content = cxt->symbol_table()->text(ident->symbol());
+        if ((inspection.label != "Path" && ident_content == inspection.label) ||
+            (inspection.label == "Path" && ident == cxt->empty_string_id())) {
+          if (inspection.label == "Signature") signature = true;
+          if (inspection.label == "Corpus") corpus = true;
+          if (inspection.label == "Root") root = true;
+          if (inspection.label == "Path") path = true;
+          if (inspection.label == "Language") language = true;
         }
-        return false;
-      }));
+      }
+      return true;
+    }
+    return false;
+  }));
   EXPECT_TRUE(signature);
   EXPECT_TRUE(corpus);
   EXPECT_TRUE(root);
@@ -2617,8 +2547,7 @@ fact_value: "//- A.node/kind file\n//- A.notafact yes\n"
   ASSERT_EQ(1, v.highest_goal_reached());
 }
 
-TEST(VerifierUnitTest, ReadGoalsFromFileNodeSuccess) {
-  Verifier v;
+TEST_P(VerifierTest, ReadGoalsFromFileNodeSuccess) {
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(entries {
 source { path:"test" }
 fact_name: "/kythe/node/kind"
@@ -2653,10 +2582,10 @@ fact_value: "//- A->node/kind file\n"
 TEST(VerifierUnitTest, DontConvertMarkedSource) {
   Verifier v;
   MarkedSource source;
-  google::protobuf::string source_string;
+  std::string source_string;
   ASSERT_TRUE(source.SerializeToString(&source_string));
   google::protobuf::TextFormat::FieldValuePrinter printer;
-  google::protobuf::string enc_source = printer.PrintBytes(source_string);
+  std::string enc_source = printer.PrintBytes(source_string);
   ASSERT_TRUE(v.LoadInlineProtoFile(R"(
   entries {
     source { signature:"test" }
@@ -2670,7 +2599,10 @@ TEST(VerifierUnitTest, DontConvertMarkedSource) {
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-class VerifierMarkedSourceUnitTest : public ::testing::TestWithParam<bool> {
+enum class MsFormat { kTextProto, kJson };
+
+class VerifierMarkedSourceUnitTest
+    : public ::testing::TestWithParam<std::tuple<MsFormat, Solver>> {
  protected:
   std::string Entries(const MarkedSource& source) const {
     kythe::proto::Entries entries;
@@ -2683,19 +2615,24 @@ class VerifierMarkedSourceUnitTest : public ::testing::TestWithParam<bool> {
     return result;
   }
 
- private:
-  std::string FactName() const {
-    return GetParam() ? "/kythe/code" : "/kythe/code/json";
+  void ConfigureVerifier(Verifier& v) {
+    v.UseFastSolver(std::get<1>(GetParam()) == Solver::Old ? false : true);
   }
 
-  google::protobuf::string Encode(const MarkedSource& source) const {
-    if (GetParam()) {
-      google::protobuf::string source_string;
+ private:
+  std::string FactName() const {
+    return std::get<0>(GetParam()) == MsFormat::kTextProto ? "/kythe/code"
+                                                           : "/kythe/code/json";
+  }
+
+  std::string Encode(const MarkedSource& source) const {
+    if (std::get<0>(GetParam()) == MsFormat::kTextProto) {
+      std::string source_string;
       GTEST_CHECK_(source.SerializeToString(&source_string))
           << "Failure serializing MarkedSource";
       return source_string;
     } else {
-      google::protobuf::string source_string;
+      std::string source_string;
       GTEST_CHECK_(
           google::protobuf::util::MessageToJsonString(source, &source_string)
               .ok())
@@ -2707,6 +2644,7 @@ class VerifierMarkedSourceUnitTest : public ::testing::TestWithParam<bool> {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSource) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   ASSERT_TRUE(v.LoadInlineProtoFile(Entries(source) + R"(
@@ -2732,6 +2670,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceKindEnums) {
     }
     auto kind_enum = static_cast<MarkedSource::Kind>(kind);
     Verifier v;
+    ConfigureVerifier(v);
     v.ConvertMarkedSource();
     MarkedSource source;
     source.set_kind(kind_enum);
@@ -2747,6 +2686,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceKindEnums) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinks) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   source.add_link()->add_definition("kythe://corpus#sig");
@@ -2760,6 +2700,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinks) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksBadUri) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   source.add_link()->add_definition("kythe:/&bad");
@@ -2768,6 +2709,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksBadUri) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksMissingUri) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   source.add_link();
@@ -2776,6 +2718,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksMissingUri) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksMultipleUri) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   auto* link = source.add_link();
@@ -2786,6 +2729,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceLinksMultipleUri) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceChildren) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   auto* child = source.add_child();
@@ -2805,6 +2749,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceChildren) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceBadChildren) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource parent;
   MarkedSource* child = parent.add_child();
@@ -2816,6 +2761,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceBadChildren) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceFields) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   source.set_pre_text("pre_text");
@@ -2840,6 +2786,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConvertMarkedSourceFields) {
 TEST_P(VerifierMarkedSourceUnitTest,
        DontConvertMarkedSourceDuplicateFactsWellFormed) {
   Verifier v;
+  ConfigureVerifier(v);
   MarkedSource source;
   v.IgnoreDuplicateFacts();
   ASSERT_TRUE(v.LoadInlineProtoFile(Entries(source) + "\n" + Entries(source)));
@@ -2850,6 +2797,7 @@ TEST_P(VerifierMarkedSourceUnitTest,
 TEST_P(VerifierMarkedSourceUnitTest,
        ConvertMarkedSourceDuplicateFactsWellFormed) {
   Verifier v;
+  ConfigureVerifier(v);
   v.ConvertMarkedSource();
   MarkedSource source;
   ASSERT_TRUE(v.LoadInlineProtoFile(Entries(source) + "\n" + Entries(source)));
@@ -2858,7 +2806,12 @@ TEST_P(VerifierMarkedSourceUnitTest,
 }
 
 TEST_P(VerifierMarkedSourceUnitTest, ConflictingCodeFactsNotWellFormed) {
+  if (std::get<1>(GetParam()) == Solver::New) {
+    // The new solver doesn't currently perform conflict checks.
+    GTEST_SKIP();
+  }
   Verifier v;
+  ConfigureVerifier(v);
   MarkedSource source;
 
   MarkedSource source_conflict;
@@ -2871,6 +2824,7 @@ TEST_P(VerifierMarkedSourceUnitTest, ConflictingCodeFactsNotWellFormed) {
 
 TEST_P(VerifierMarkedSourceUnitTest, ConflictingCodeFactsIgnoreWellFormed) {
   Verifier v;
+  ConfigureVerifier(v);
   v.IgnoreCodeConflicts();
   MarkedSource source;
   MarkedSource source_conflict;
@@ -2881,8 +2835,16 @@ TEST_P(VerifierMarkedSourceUnitTest, ConflictingCodeFactsIgnoreWellFormed) {
   ASSERT_TRUE(v.VerifyAllGoals());
 }
 
-INSTANTIATE_TEST_SUITE_P(JsonAndProto, VerifierMarkedSourceUnitTest,
-                         ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(
+    JsonAndProto, VerifierMarkedSourceUnitTest,
+    ::testing::Combine(::testing::Values(MsFormat::kTextProto, MsFormat::kJson),
+                       ::testing::Values(Solver::Old, Solver::New)),
+    [](const auto& p) {
+      if (std::get<0>(p.param) == MsFormat::kTextProto)
+        return std::get<1>(p.param) == Solver::Old ? "textold" : "textnew";
+      else
+        return std::get<1>(p.param) == Solver::Old ? "jsonold" : "jsonnew";
+    });
 
 }  // anonymous namespace
 }  // namespace verifier
@@ -2890,7 +2852,7 @@ INSTANTIATE_TEST_SUITE_P(JsonAndProto, VerifierMarkedSourceUnitTest,
 
 int main(int argc, char** argv) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
-  ::google::InitGoogleLogging(argv[0]);
+  ::absl::InitializeLog();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

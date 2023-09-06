@@ -13,9 +13,11 @@ go_library(
         "indexer.go",
         "markedsource.go",
     ],
+    importpath = "kythe.io/kythe/go/indexer",
     deps = [
         "//kythe/go/extractors/govname",
         "//kythe/go/util/kytheuri",
+        "//kythe/go/util/log",
         "//kythe/go/util/metadata",
         "//kythe/go/util/ptypes",
         "//kythe/go/util/schema/edges",
@@ -27,9 +29,9 @@ go_library(
         "//kythe/proto:metadata_go_proto",
         "//kythe/proto:storage_go_proto",
         "@com_github_golang_protobuf//proto:go_default_library",
-        "@org_bitbucket_creachadair_stringset//:go_default_library",
-        "@org_golang_x_tools//go/gcexportdata:go_default_library",
-        "@org_golang_x_tools//go/types/typeutil:go_default_library",
+        "@org_bitbucket_creachadair_stringset//:stringset",
+        "@org_golang_x_tools//go/gcexportdata",
+        "@org_golang_x_tools//go/types/typeutil",
     ],
 )
 
@@ -42,6 +44,14 @@ go_test(
     library = ":indexer",
     deps = [
         "//kythe/go/test/testutil",
+        "//kythe/go/util/log",
+        "//kythe/go/util/metadata",
+        "//kythe/go/util/ptypes",
+        "//kythe/go/util/schema/edges",
+        "//kythe/proto:analysis_go_proto",
+        "//kythe/proto:go_go_proto",
+        "//kythe/proto:metadata_go_proto",
+        "//kythe/proto:storage_go_proto",
         "@com_github_golang_protobuf//proto:go_default_library",
     ],
 )
@@ -50,6 +60,16 @@ bzl_library(
     name = "go_indexer_test_bzl",
     srcs = ["testdata/go_indexer_test.bzl"],
     visibility = ["//visibility:private"],
+)
+
+go_indexer_test(
+    name = "builtin_test",
+    srcs = ["testdata/builtin.go"],
+    extra_goals = ["testdata/builtin.go"],
+    has_marked_source = True,
+    import_path = "builtin",
+    resolve_code_facts = True,
+    use_file_as_top_level_scope = True,
 )
 
 go_indexer_test(
@@ -107,6 +127,13 @@ go_indexer_test(
 go_indexer_test(
     name = "funcall_test",
     srcs = ["testdata/basic/funcall.go"],
+    import_path = "test/fun",
+)
+
+go_indexer_test(
+    name = "funcallid_test",
+    srcs = ["testdata/basic/funcallid.go"],
+    extra_indexer_args = ["-emit_ref_call_over_identifier"],
     import_path = "test/fun",
 )
 
@@ -177,6 +204,15 @@ go_indexer_test(
     name = "inline_test",
     srcs = ["testdata/basic/inline.go"],
     metadata_suffix = ".linkage",
+)
+
+go_indexer_test(
+    name = "code_rendered_test",
+    srcs = ["testdata/code/rendered.go"],
+    has_marked_source = True,
+    import_path = "rendered",
+    resolve_code_facts = True,
+    deps = [":builtin_test"],
 )
 
 go_indexer_test(
@@ -259,16 +295,31 @@ go_indexer_test(
 )
 
 go_indexer_test(
+    name = "packageinit_file_test",
+    srcs = ["testdata/basic/packageinit_file.go"],
+    import_path = "test/pkginit",
+    use_file_as_top_level_scope = True,
+)
+
+go_indexer_test(
     name = "types_test",
     srcs = ["testdata/types.go"],
     has_marked_source = True,
 )
 
 go_indexer_test(
+    name = "dep.v2",
+    srcs = ["testdata/dep.v2.go"],
+)
+
+go_indexer_test(
     name = "dependent_test",
     srcs = ["testdata/dependent.go"],
     has_marked_source = True,
-    deps = [":types_test"],
+    deps = [
+        ":dep.v2",
+        ":types_test",
+    ],
 )
 
 go_indexer_test(

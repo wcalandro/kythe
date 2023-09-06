@@ -42,8 +42,7 @@ class LibrarySupport {
   struct Completion {
     /// The Decl being completed.
     const clang::Decl* Decl;
-    /// The corresponding NodeId. If `Decl` is underneath a template, this will
-    /// point to the `Abs` node of that template.
+    /// The corresponding NodeId.
     GraphObserver::NodeId DeclId;
   };
 
@@ -56,15 +55,12 @@ class LibrarySupport {
   /// meaning.
   ///
   /// \param V The active IndexerASTVisitor.
-  /// \param DeclNodeId If `Decl` is under a template, the `NodeId` of the
-  /// surrounding `Abs`; otherwise, the `NodeId` of the `Decl`.
-  /// \param DeclBodyNodeId The variable's NodeId (not its surrounding Abs)
+  /// \param DeclNodeId The `NodeId` of the `Decl`.
   /// \param Decl The VarDecl in question.
   /// \param Compl Whether the Decl was complete.
   /// \param Compls If the Decl is complete, the decls that it completes.
   virtual void InspectVariable(IndexerASTVisitor& V,
-                               GraphObserver::NodeId& DeclNodeId,
-                               GraphObserver::NodeId& DeclBodyNodeId,
+                               const GraphObserver::NodeId& DeclNodeId,
                                const clang::VarDecl* Decl,
                                GraphObserver::Completeness Compl,
                                const std::vector<Completion>& Compls) {}
@@ -78,8 +74,26 @@ class LibrarySupport {
   virtual void InspectDeclRef(IndexerASTVisitor& V,
                               clang::SourceLocation DeclRefLocation,
                               const GraphObserver::Range& Ref,
-                              GraphObserver::NodeId& RefId,
+                              const GraphObserver::NodeId& RefId,
                               const clang::NamedDecl* TargetDecl) {}
+
+  /// \brief Called on any DeclRef. An overload of the above function that
+  /// provides access to the expression.
+  ///
+  /// \param V The active IndexerASTVisitor.
+  /// \param DeclRefLocation The location of the reference.
+  /// \param Ref The range of the reference.
+  /// \param RefId The NodeId of the referent (TargetDecl).
+  /// \param TargetDecl The NamedDecl being referenced.
+  /// \param Expr The Expr that references the NamedDecl
+  virtual void InspectDeclRef(IndexerASTVisitor& V,
+                              clang::SourceLocation DeclRefLocation,
+                              const GraphObserver::Range& Ref,
+                              const GraphObserver::NodeId& RefId,
+                              const clang::NamedDecl* TargetDecl,
+                              const clang::Expr* Expr) {
+    InspectDeclRef(V, DeclRefLocation, Ref, RefId, TargetDecl);
+  }
 
   /// \brief Called on any CallExpr.
   /// \param V The active IndexerASTVisitor.
@@ -89,7 +103,19 @@ class LibrarySupport {
   virtual void InspectCallExpr(IndexerASTVisitor& V,
                                const clang::CallExpr* CallExpr,
                                const GraphObserver::Range& Range,
-                               GraphObserver::NodeId& CalleeId) {}
+                               const GraphObserver::NodeId& CalleeId) {}
+
+  /// \brief Called on any FunctionDecl.
+  /// \param V The active IndexerASTVisitor.
+  /// \param DeclNodeId The `NodeId` of the `Decl`.
+  /// \param FunctionDecl The call expr.
+  /// \param Compl Whether the Decl was complete.
+  /// \param Compls If the Decl is complete, the decls that it completes.
+  virtual void InspectFunctionDecl(IndexerASTVisitor& V,
+                                   const GraphObserver::NodeId& DeclNodeId,
+                                   const clang::FunctionDecl* FunctionDecl,
+                                   GraphObserver::Completeness Compl,
+                                   const std::vector<Completion>& Compls) {}
 };
 
 /// \brief A collection of library support implementations.

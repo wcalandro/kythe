@@ -20,6 +20,7 @@
 #define KYTHE_CXX_INDEXER_CXX_INDEXER_AST_HOOKS_H_
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -28,12 +29,12 @@
 #include "IndexerLibrarySupport.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTTypeTraits.h"
 #include "clang/Sema/SemaConsumer.h"
-#include "glog/logging.h"
 #include "indexed_parent_map.h"
 #include "indexer_worklist.h"
 #include "kythe/cxx/indexer/cxx/node_set.h"
@@ -44,12 +45,6 @@
 #include "type_map.h"
 
 namespace kythe {
-
-/// \brief Specifies whether uncommonly-used data should be dropped.
-enum Verbosity : bool {
-  Classic = true,  ///< Emit all data.
-  Lite = false     ///< Emit only common data.
-};
 
 /// \brief Specifies what the indexer should do if it encounters a case it
 /// doesn't understand.
@@ -73,12 +68,6 @@ struct MiniAnchor {
   size_t Begin;
   size_t End;
   GraphObserver::NodeId AnchoredTo;
-};
-
-/// \brief Specifies whether dataflow edges should be emitted.
-enum EmitDataflowEdges : bool {
-  No = false,  ///< Don't emit dataflow edges.
-  Yes = true   ///< Emit dataflow edges.
 };
 
 /// Adds brackets to Text to define anchor locations (escaping existing ones)
@@ -108,8 +97,6 @@ struct IndexerOptions {
   BehaviorOnUnimplemented IgnoreUnimplemented = BehaviorOnUnimplemented::Abort;
   /// \brief Whether we should visit template instantiations.
   BehaviorOnTemplates TemplateMode = BehaviorOnTemplates::VisitInstantiations;
-  /// \brief Whether we should emit all data.
-  Verbosity Verbosity = kythe::Verbosity::Classic;
   /// \brief Should we emit documentation for forward class decls in ObjC?
   BehaviorOnFwdDeclComments ObjCFwdDocs = BehaviorOnFwdDeclComments::Emit;
   /// \brief Should we emit documentation for forward decls in C++?
@@ -119,8 +106,8 @@ struct IndexerOptions {
   /// \brief The number of (raw) bytes to use to represent a USR. If 0,
   /// no USRs will be recorded.
   int UsrByteSize = 0;
-  /// \brief Controls whether dataflow edges are emitted.
-  EmitDataflowEdges DataflowEdges = EmitDataflowEdges::No;
+  /// \brief Whether to use the default corpus when emitting USRs.
+  bool EmitUsrCorpus = false;
   /// \brief if nonempty, the pattern to match a path against to see whether
   /// it should be excluded from template instance indexing.
   std::shared_ptr<re2::RE2> TemplateInstanceExcludePathPattern = nullptr;
@@ -249,8 +236,10 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   bool VisitEnumDecl(const clang::EnumDecl* Decl);
   bool VisitEnumConstantDecl(const clang::EnumConstantDecl* Decl);
   bool VisitFunctionDecl(clang::FunctionDecl* Decl);
+
   bool TraverseDecl(clang::Decl* Decl);
   bool TraverseCXXConstructorDecl(clang::CXXConstructorDecl* CD);
+  bool TraverseCXXDefaultInitExpr(const clang::CXXDefaultInitExpr* E);
 
   bool TraverseConstructorInitializer(clang::CXXCtorInitializer* Init);
   bool TraverseCXXNewExpr(clang::CXXNewExpr* E);
@@ -308,12 +297,12 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
 
   // Objective C methods don't have TypeSourceInfo so we must construct a type
   // for the methods to be used in the graph.
-  absl::optional<GraphObserver::NodeId> CreateObjCMethodTypeNode(
+  std::optional<GraphObserver::NodeId> CreateObjCMethodTypeNode(
       const clang::ObjCMethodDecl* MD);
 
   /// \brief Builds a stable node ID for a compile-time expression.
   /// \param Expr The expression to represent.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForExpr(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForExpr(
       const clang::Expr* Expr);
 
   /// \brief Builds a stable node ID for a special template argument.
@@ -323,7 +312,7 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
 
   /// \brief Builds a stable node ID for a template expansion template argument.
   /// \param Name The template pattern being expanded.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForTemplateExpansion(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForTemplateExpansion(
       clang::TemplateName Name);
 
   /// \brief Builds a stable NodeSet for the given TypeLoc.
@@ -395,7 +384,7 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   const clang::TemplateTypeParmDecl* FindTemplateTypeParmTypeDecl(
       const clang::TemplateTypeParmType& T) const;
 
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForObjCProtocols(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForObjCProtocols(
       const clang::ObjCObjectType& T);
   GraphObserver::NodeId BuildNodeIdForObjCProtocols(
       absl::Span<const GraphObserver::NodeId> ProtocolIds);
@@ -408,31 +397,30 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \brief Builds a stable node ID for `Type`.
   /// \param TypeLoc The type that is being identified.
   /// \return The Node ID for `Type`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForType(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForType(
       const clang::TypeLoc& TypeLoc);
 
   /// \brief Builds a stable node ID for `QT`.
   /// \param QT The type that is being identified.
   /// \return The Node ID for `QT`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForType(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForType(
       const clang::QualType& QT);
 
   /// \brief Builds a stable node ID for `T`.
   /// \param T The type that is being identified.
   /// \return The Node ID for `T`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForType(
-      const clang::Type* T);
+  std::optional<GraphObserver::NodeId> BuildNodeIdForType(const clang::Type* T);
 
   /// \brief Builds a stable node ID for the given `TemplateName`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForTemplateName(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForTemplateName(
       const clang::TemplateName& Name);
 
   /// \brief Builds a stable node ID for the given `TemplateArgumentLoc`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForTemplateArgument(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForTemplateArgument(
       const clang::TemplateArgumentLoc& ArgLoc);
 
   /// \brief Builds a stable node ID for the given `TemplateArgument`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForTemplateArgument(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForTemplateArgument(
       const clang::TemplateArgument& Arg);
 
   /// \brief Builds a stable node ID for `Stmt`.
@@ -444,23 +432,23 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \param Decl The statement that is being identified
   /// \return The node for `Stmt` if the statement was implicit; otherwise,
   /// None.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForImplicitStmt(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForImplicitStmt(
       const clang::Stmt* Stmt);
 
   /// \brief Builds a stable node ID for `Decl`'s tapp if it's an implicit
   /// template instantiation.
-  absl::optional<GraphObserver::NodeId>
+  std::optional<GraphObserver::NodeId>
   BuildNodeIdForImplicitTemplateInstantiation(const clang::Decl* Decl);
 
   /// \brief Builds a stable node ID for `Decl`'s tapp if it's an implicit
   /// function template instantiation.
-  absl::optional<GraphObserver::NodeId>
+  std::optional<GraphObserver::NodeId>
   BuildNodeIdForImplicitFunctionTemplateInstantiation(
       const clang::FunctionDecl* FD);
 
   /// \brief Builds a stable node ID for `Decl`'s tapp if it's an implicit
   /// class template instantiation.
-  absl::optional<GraphObserver::NodeId>
+  std::optional<GraphObserver::NodeId>
   BuildNodeIdForImplicitClassTemplateInstantiation(
       const clang::ClassTemplateSpecializationDecl* CTSD);
 
@@ -487,30 +475,14 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \return The node for the definition `Decl` if `Decl` isn't a definition
   /// and its definition can be found; or None.
   template <typename D>
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForDefnOfDecl(
-      const D* Decl) {
+  std::optional<GraphObserver::NodeId> BuildNodeIdForDefnOfDecl(const D* Decl) {
     if (const auto* Defn = Decl->getDefinition()) {
       if (Defn != Decl) {
         return BuildNodeIdForDecl(Defn);
       }
     }
-    return absl::nullopt;
+    return std::nullopt;
   }
-
-  /// \brief Builds a stable node ID for `Decl`.
-  ///
-  /// There is not a one-to-one correspondence between `Decl`s and nodes.
-  /// Certain `Decl`s, like `TemplateTemplateParmDecl`, are split into a
-  /// node representing the parameter and a node representing the kind of
-  /// the abstraction. The primary node is returned by the normal
-  /// `BuildNodeIdForDecl` function.
-  ///
-  /// \param Decl The declaration that is being identified.
-  /// \param Index The index of the sub-id to generate.
-  ///
-  /// \return A stable node ID for `Decl`'s `Index`th subnode.
-  GraphObserver::NodeId BuildNodeIdForDecl(const clang::Decl* Decl,
-                                           unsigned Index);
 
   /// \brief Builds a stable name ID for the name of `Decl`.
   ///
@@ -526,10 +498,10 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \param Root If provided, the primary NodeId is morally prepended to `NNS`
   /// such that the dependent name is lookup(lookup*(Root, NNS), Id).
   /// \return The NodeId for the dependent name.
-  absl::optional<GraphObserver::NodeId> RecordEdgesForDependentName(
+  std::optional<GraphObserver::NodeId> RecordEdgesForDependentName(
       const clang::NestedNameSpecifierLoc& NNS,
       const clang::DeclarationName& Id, const clang::SourceLocation IdLoc,
-      const absl::optional<GraphObserver::NodeId>& Root = absl::nullopt);
+      const std::optional<GraphObserver::NodeId>& Root = std::nullopt);
 
   /// \brief Records parameter edges for the given dependent name.
   /// Also records Lookup edges for any nested Identifiers.
@@ -538,16 +510,16 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \param Root If provided, the primary NodeId to prepend to `NNS`.
   /// \return The provided NodeId or nullopt if an unhandled element is
   /// encountered.
-  absl::optional<GraphObserver::NodeId> RecordParamEdgesForDependentName(
+  std::optional<GraphObserver::NodeId> RecordParamEdgesForDependentName(
       const GraphObserver::NodeId& DId, clang::NestedNameSpecifierLoc NNSLoc,
-      const absl::optional<GraphObserver::NodeId>& Root = absl::nullopt);
+      const std::optional<GraphObserver::NodeId>& Root = std::nullopt);
 
   /// \brief Records the lookup edge for a dependent name.
   ///
   /// \param DId The NodeId of the name being looked up.
   /// \param Name The kind of name being looked up.
-  /// \return The provided NodeId or absl::nullopt if Name is unsupported.
-  absl::optional<GraphObserver::NodeId> RecordLookupEdgeForDependentName(
+  /// \return The provided NodeId or std::nullopt if Name is unsupported.
+  std::optional<GraphObserver::NodeId> RecordLookupEdgeForDependentName(
       const GraphObserver::NodeId& DId, const clang::DeclarationName& Name);
 
   /// \brief Builds a NodeId for the DependentName.
@@ -570,14 +542,14 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// its type.
   ///
   /// \param NNSLoc The NestedNameSpecifierLoc from which to construct a NodeId.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForNestedNameSpecifier(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForNestedNameSpecifier(
       const clang::NestedNameSpecifier* NNS);
 
   /// \brief Builds a NodeId for the provided NestedNameSpecifier, depending on
   /// its type.
   ///
   /// \param NNSLoc The NestedNameSpecifierLoc from which to construct a NodeId.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForNestedNameSpecifierLoc(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForNestedNameSpecifierLoc(
       const clang::NestedNameSpecifierLoc& NNSLoc);
 
   /// \brief Is `VarDecl` a definition?
@@ -635,16 +607,16 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \brief Records the range of a definition. If the range cannot be placed
   /// somewhere inside a source file, no record is made.
   void MaybeRecordDefinitionRange(
-      const absl::optional<GraphObserver::Range>& R,
+      const std::optional<GraphObserver::Range>& R,
       const GraphObserver::NodeId& Id,
-      const absl::optional<GraphObserver::NodeId>& DeclId);
+      const std::optional<GraphObserver::NodeId>& DeclId);
 
   /// \brief Records the full range of a definition. If the range cannot be
   /// placed somewhere inside a source file, no record is made.
   void MaybeRecordFullDefinitionRange(
-      const absl::optional<GraphObserver::Range>& R,
+      const std::optional<GraphObserver::Range>& R,
       const GraphObserver::NodeId& Id,
-      const absl::optional<GraphObserver::NodeId>& DeclId);
+      const std::optional<GraphObserver::NodeId>& DeclId);
 
   /// \brief Returns the attached GraphObserver.
   GraphObserver& getGraphObserver() { return Observer; }
@@ -654,14 +626,14 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
 
   /// Returns `SR` as a `Range` in this `RecursiveASTVisitor`'s current
   /// RangeContext.
-  absl::optional<GraphObserver::Range> ExplicitRangeInCurrentContext(
+  std::optional<GraphObserver::Range> ExplicitRangeInCurrentContext(
       const clang::SourceRange& SR);
 
   /// Returns `SR` as a `Range` in this `RecursiveASTVisitor`'s current
   /// RangeContext. If SR is in a macro, the returned Range will be mapped
   /// to a file first. If the range would be zero-width, it will be expanded
   /// via RangeForASTEntityFromSourceLocation.
-  absl::optional<GraphObserver::Range> ExpandedRangeInCurrentContext(
+  std::optional<GraphObserver::Range> ExpandedRangeInCurrentContext(
       clang::SourceRange SR);
   /// Returns `SR` as a character-based file range.
   clang::SourceRange NormalizeRange(clang::SourceRange SR) const;
@@ -669,15 +641,15 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// If `Implicit` is true, returns `Id` as an implicit Range; otherwise,
   /// returns `SR` as a `Range` in this `RecursiveASTVisitor`'s current
   /// RangeContext.
-  absl::optional<GraphObserver::Range> RangeInCurrentContext(
+  std::optional<GraphObserver::Range> RangeInCurrentContext(
       bool Implicit, const GraphObserver::NodeId& Id,
       const clang::SourceRange& SR);
 
   /// If `Id` is some NodeId, returns it as an implicit Range; otherwise,
   /// returns `SR` as a `Range` in this `RecursiveASTVisitor`'s current
   /// RangeContext.
-  absl::optional<GraphObserver::Range> RangeInCurrentContext(
-      const absl::optional<GraphObserver::NodeId>& Id,
+  std::optional<GraphObserver::Range> RangeInCurrentContext(
+      const std::optional<GraphObserver::NodeId>& Id,
       const clang::SourceRange& SR);
 
   void RunJob(std::unique_ptr<IndexJob> JobToRun) {
@@ -745,6 +717,26 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// influence is the member decl for `z`.
   const clang::Decl* GetInfluencedDeclFromLValueHead(const clang::Expr* head);
 
+  /// \brief Describes a target (possibly sub-)expression resulting from some
+  /// operation.
+  ///
+  /// Often parts of an expression are especially interesting, like
+  /// lvalue heads (`z` in `x.y.z`) or the results of eliminating simple aliases
+  /// (`x` in `*&x`). The `head` field will contain that subexpression. If
+  /// the entire expression is relevant, or if no subexpression could be found,
+  /// `head` will contain the input expression.
+  ///
+  /// It may also be the case that the indexer has more information about
+  /// a particular target, e.g. that it should semantically refer to some
+  /// remote node rather than the one indicated by the (sub)expression. In this
+  /// case the `alt` field will contain that remote node's ID; this should be
+  /// preferred to `head`. For example, `alt` will be set to the ID of the
+  /// `foo` field in `*x->mutable_foo()`.
+  struct TargetExpr {
+    const clang::Expr* head;                   ///< The target (sub)expression.
+    std::optional<GraphObserver::NodeId> alt;  ///< The preferred target.
+  };
+
   /// \brief Eliminates the trivial introduction of aliasing.
   ///
   /// In some situations (and modulo undefined behavior), the expression
@@ -752,9 +744,9 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// it could also be a MemberExpr that has alias semantics tied to another
   /// field or some piece of generated code.
   ///
-  /// \return the head of a trivial alias/dealias operation or `expr` if the
-  /// operation failed to find one.
-  const clang::Expr* SkipTrivialAliasing(const clang::Expr* expr);
+  /// \return a TargetExpr with the alias eliminated, or with the original
+  /// `expr` set if no alias could be eliminated.
+  TargetExpr SkipTrivialAliasing(const clang::Expr* expr);
 
   /// \brief The result of calling into the lexer.
   enum class LexerResult {
@@ -792,12 +784,7 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
 
   /// \brief Attempts to find the ID of the first parent of `Decl` for
   /// attaching a `childof` relationship.
-  absl::optional<GraphObserver::NodeId> GetDeclChildOf(const clang::Decl* D);
-
-  /// \brief Attempts to add some representation of `ND` to `Ostream`.
-  /// \return true on success; false on failure.
-  bool AddNameToStream(llvm::raw_string_ostream& Ostream,
-                       const clang::NamedDecl* ND) const;
+  std::optional<GraphObserver::NodeId> GetDeclChildOf(const clang::Decl* D);
 
   /// \brief Assign `ND` (whose node ID is `TargetNode`) a USR if USRs are
   /// enabled.
@@ -864,12 +851,11 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// Filled on the first call to `getIndexedParents`.
   LazyIndexedParentMap AllParents{[this] { return BuildIndexedParentMap(); }};
 
-  /// Records information about the template `Template` wrapping the node
-  /// `BodyId`, including the edge linking the template and its body. Returns
-  /// the `NodeId` for the dominating template.
+  /// Records information about the template `Template` for the node
+  /// `DeclNode`, including the edges linking the template with its parameters.
   template <typename TemplateDeclish>
-  GraphObserver::NodeId RecordTemplate(
-      const TemplateDeclish* Decl, const GraphObserver::NodeId& BodyDeclNode);
+  void RecordTemplate(const TemplateDeclish* Decl,
+                      const GraphObserver::NodeId& DeclNode);
 
   /// Records information about the generic class by wrapping the node
   /// `BodyId`. Returns the `NodeId` for the dominating generic type.
@@ -878,9 +864,9 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
       const clang::ObjCTypeParamList* TPL, const GraphObserver::NodeId& BodyId);
 
   /// \brief Returns a vector of NodeId for each template argument.
-  absl::optional<std::vector<GraphObserver::NodeId>> BuildTemplateArgumentList(
+  std::optional<std::vector<GraphObserver::NodeId>> BuildTemplateArgumentList(
       llvm::ArrayRef<clang::TemplateArgument> Args);
-  absl::optional<std::vector<GraphObserver::NodeId>> BuildTemplateArgumentList(
+  std::optional<std::vector<GraphObserver::NodeId>> BuildTemplateArgumentList(
       llvm::ArrayRef<clang::TemplateArgumentLoc> Args);
 
   /// Dumps information about `TypeContext` to standard error when looking for
@@ -895,12 +881,12 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
 
   /// Points at the inner node of the DeclContext, if it's a template.
   /// Otherwise points at the DeclContext as a Decl.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForDeclContext(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForDeclContext(
       const clang::DeclContext* DC);
 
   /// Points at the tapp node for a DeclContext, if it's an implicit template
   /// instantiation. Otherwise behaves as `BuildNodeIdForDeclContext`.
-  absl::optional<GraphObserver::NodeId> BuildNodeIdForRefToDeclContext(
+  std::optional<GraphObserver::NodeId> BuildNodeIdForRefToDeclContext(
       const clang::DeclContext* DC);
 
   /// Avoid regenerating type node IDs and keep track of where we are while
@@ -985,49 +971,63 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   const clang::ObjCMethodDecl* FindMethodDefn(
       const clang::ObjCMethodDecl* MD, const clang::ObjCInterfaceDecl* I);
 
-  void VisitObjCInterfaceDeclComment(
-      const clang::ObjCInterfaceDecl* Decl, const clang::RawComment* Comment,
-      const clang::DeclContext* DCxt,
-      absl::optional<GraphObserver::NodeId> DCID);
+  void VisitObjCInterfaceDeclComment(const clang::ObjCInterfaceDecl* Decl,
+                                     const clang::RawComment* Comment,
+                                     const clang::DeclContext* DCxt,
+                                     std::optional<GraphObserver::NodeId> DCID);
 
   void VisitRecordDeclComment(const clang::RecordDecl* Decl,
                               const clang::RawComment* Comment,
                               const clang::DeclContext* DCxt,
-                              absl::optional<GraphObserver::NodeId> DCID);
+                              std::optional<GraphObserver::NodeId> DCID);
 
   /// \brief Returns whether `Decl` should be indexed.
   bool ShouldIndex(const clang::Decl* Decl);
 
-  GraphObserver::UseKind UseKindFor(const clang::Expr* expr) {
+  /// \brief Binds a particular `target` with a semantic `kind` (e.g., this
+  /// expr is a use that is a write to some node).
+  struct KindWithTarget {
+    GraphObserver::UseKind kind;   ///< The way `target` is being used.
+    GraphObserver::NodeId target;  ///< The node being used.
+  };
+
+  KindWithTarget UseKindFor(const clang::Expr* expr,
+                            const GraphObserver::NodeId& default_target) {
     auto i = use_kinds_.find(expr);
-    return i == use_kinds_.end() ? GraphObserver::UseKind::kUnknown : i->second;
+    return i == use_kinds_.end()
+               ? KindWithTarget{GraphObserver::UseKind::kUnknown,
+                                default_target}
+               : KindWithTarget{i->second.kind, i->second.target
+                                                    ? *i->second.target
+                                                    : default_target};
   }
 
   /// \brief Marks that `expr` was used as a write target.
-  /// \return `expr` as passed.
-  const clang::Expr* UsedAsWrite(const clang::Expr* expr) {
-    if (expr != nullptr)
-      use_kinds_[SkipTrivialAliasing(expr)] = GraphObserver::UseKind::kWrite;
-    return expr;
+  /// \return `expr` as passed, as well as an optional indirect target.
+  TargetExpr UsedAsWrite(const clang::Expr* expr) {
+    if (expr != nullptr) {
+      auto [head, alt] = SkipTrivialAliasing(expr);
+      use_kinds_[head] = {GraphObserver::UseKind::kWrite, alt};
+      return {expr, alt};
+    }
+    return {expr, std::nullopt};
   }
 
   /// \brief Marks that `expr` was used as a read+write target.
-  /// \return `expr` as passed.
-  const clang::Expr* UsedAsReadWrite(const clang::Expr* expr) {
-    if (expr != nullptr)
-      use_kinds_[SkipTrivialAliasing(expr)] =
-          GraphObserver::UseKind::kReadWrite;
-    return expr;
+  /// \return `expr` as passed, as well as an optional indirect target.
+  TargetExpr UsedAsReadWrite(const clang::Expr* expr) {
+    if (expr != nullptr) {
+      auto [head, alt] = SkipTrivialAliasing(expr);
+      use_kinds_[head] = {GraphObserver::UseKind::kReadWrite, alt};
+      return {expr, alt};
+    }
+    return {expr, std::nullopt};
   }
 
-  /// \brief Marks that `expr` was used as an alias target.
-  /// \return `expr` as passed.
-  const clang::Expr* UsedAsAlias(const clang::Expr* expr) {
-    if (expr != nullptr)
-      use_kinds_[SkipTrivialAliasing(expr)] =
-          GraphObserver::UseKind::kTakeAlias;
-    return expr;
-  }
+  /// \brief Returns a bundle of nodes to blame for field initializers.
+  IndexJob::SomeNodes FindConstructorsForBlame(const clang::FieldDecl& field);
+  IndexJob::SomeNodes FindNodesForBlame(const clang::ObjCMethodDecl& decl);
+  IndexJob::SomeNodes FindNodesForBlame(const clang::FunctionDecl& decl);
 
   /// \brief Maps known Decls to their NodeIds.
   llvm::DenseMap<const clang::Decl*, GraphObserver::NodeId> DeclToNodeId;
@@ -1050,8 +1050,19 @@ class IndexerASTVisitor : public RecursiveTypeVisitor<IndexerASTVisitor> {
   /// \brief Comments we've already visited.
   std::unordered_set<const clang::RawComment*> VisitedComments;
 
+  /// \brief Binds a particular implicit `expr` with a semantic `kind` (e.g.,
+  /// this expr is a use that is a write to some node). May provide an
+  /// overriding `target` if there is a more specific node than the one
+  /// implied by the `expr`.
+  struct KindWithOptionalTarget {
+    GraphObserver::UseKind kind;  ///< The way `target` is being used.
+    std::optional<GraphObserver::NodeId>
+        target;  ///< The node being used, if different from
+                 ///< the implicit `expr`.
+  };
+
   /// \brief AST nodes we know are used in specific ways.
-  absl::flat_hash_map<const clang::Expr*, GraphObserver::UseKind> use_kinds_;
+  absl::flat_hash_map<const clang::Expr*, KindWithOptionalTarget> use_kinds_;
 
   struct AlternateSemantic {
     GraphObserver::UseKind use_kind;

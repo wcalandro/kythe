@@ -17,14 +17,18 @@
 #include "kythe/cxx/common/path_utils.h"
 
 #include <stdio.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <string>
 #include <system_error>
+#include <vector>
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace kythe {
@@ -59,6 +63,7 @@ TEST(PathUtilsTest, CleanPath) {
   // "" => "", not "" => "."); the examples from the documentation at
   // http://golang.org/pkg/path/#example_Clean are checked here.
   EXPECT_EQ("a/c", CleanPath("a/c"));
+  EXPECT_EQ("a/c", CleanPath("./a/c"));
   EXPECT_EQ("a/c", CleanPath("a//c"));
   EXPECT_EQ("a/c", CleanPath("a/c/."));
   EXPECT_EQ("a/c", CleanPath("a/c/b/.."));
@@ -85,6 +90,8 @@ TEST(PathUtilsTest, RelativizePath) {
 
   EXPECT_EQ("foo", RelativizePath("foo", "."));
   EXPECT_EQ("foo", RelativizePath("foo", *current_dir));
+  EXPECT_EQ("foo", RelativizePath("./foo", "."));
+  EXPECT_EQ("foo", RelativizePath("./foo", *current_dir));
   EXPECT_EQ("bar", RelativizePath("foo/bar", "foo"));
   EXPECT_EQ("bar", RelativizePath("foo/bar", cwd_foo));
   EXPECT_EQ("foo", RelativizePath(cwd_foo, "."));
@@ -203,6 +210,9 @@ TEST_F(CanonicalizerTest, CanonicalizerCleanPathOnly) {
           .value();
   EXPECT_EQ("link/file",
             canonicalizer.Relativize(JoinPath(root(), "link/subdir/../file"))
+                .value_or(""));
+  EXPECT_EQ("link/file",
+            canonicalizer.Relativize(JoinPath(root(), "./link/subdir/../file"))
                 .value_or(""));
 }
 

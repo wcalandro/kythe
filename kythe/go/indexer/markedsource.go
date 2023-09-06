@@ -19,10 +19,10 @@ package indexer
 import (
 	"fmt"
 	"go/types"
-	"log"
 	"strings"
 
 	"kythe.io/kythe/go/util/kytheuri"
+	"kythe.io/kythe/go/util/log"
 	"kythe.io/kythe/go/util/schema/facts"
 
 	"github.com/golang/protobuf/proto"
@@ -81,22 +81,23 @@ func (pi *PackageInfo) MarkedSource(obj types.Object) *cpb.MarkedSource {
 		// Methods:   func (R) Name(p1, ...) (r0, ...)
 		// Functions: func Name(p0, ...) (r0, ...)
 		fn := &cpb.MarkedSource{
-			Kind:  cpb.MarkedSource_BOX,
-			Child: []*cpb.MarkedSource{{PreText: "func "}},
+			Kind: cpb.MarkedSource_BOX,
+			Child: []*cpb.MarkedSource{{
+				Kind:     cpb.MarkedSource_MODIFIER,
+				PreText:  "func",
+				PostText: " ",
+			}},
 		}
 		sig := t.Type().(*types.Signature)
 		firstParam := 0
 		if recv := sig.Recv(); recv != nil {
 			// Parenthesized receiver type, e.g. (R).
 			fn.Child = append(fn.Child, &cpb.MarkedSource{
-				// TODO(schroederc): use LOOKUP_BY_PARAM
 				Kind:     cpb.MarkedSource_PARAMETER,
 				PreText:  "(",
 				PostText: ") ",
 				Child: []*cpb.MarkedSource{{
-					Kind:    cpb.MarkedSource_TYPE,
-					PreText: typeName(recv.Type()) + typeArgs(recv.Type()),
-					Link:    []*cpb.Link{{Definition: []string{kytheuri.ToString(pi.ObjectVName(recv))}}},
+					Kind: cpb.MarkedSource_LOOKUP_BY_PARAM,
 				}},
 			})
 			firstParam = 1
@@ -131,16 +132,32 @@ func (pi *PackageInfo) MarkedSource(obj types.Object) *cpb.MarkedSource {
 		}
 		if res := sig.Results(); res != nil && res.Len() > 0 {
 			rms := &cpb.MarkedSource{Kind: cpb.MarkedSource_TYPE, PreText: " "}
-			if res.Len() > 1 {
-				// If there is more than one result type, parenthesize.
+			var hasNamedReturn bool
+			for i := 0; i < res.Len(); i++ {
+				if v := res.At(i); v.Name() == "" {
+					rms.Child = append(rms.Child, &cpb.MarkedSource{
+						PreText: typeName(v.Type()),
+					})
+				} else {
+					hasNamedReturn = true
+					rms.Child = append(rms.Child, &cpb.MarkedSource{
+						PostChildText: " ",
+						Child: []*cpb.MarkedSource{{
+							Kind:    cpb.MarkedSource_IDENTIFIER,
+							PreText: v.Name(),
+							Link:    []*cpb.Link{{Definition: []string{kytheuri.ToString(pi.ObjectVName(v))}}},
+						}, {
+							Kind:    cpb.MarkedSource_TYPE,
+							PreText: typeName(v.Type()),
+						}},
+					})
+				}
+			}
+			if res.Len() > 1 || hasNamedReturn {
+				// If there is more than one result type (or the return is named), parenthesize.
 				rms.PreText = " ("
 				rms.PostText = ")"
 				rms.PostChildText = ", "
-			}
-			for i := 0; i < res.Len(); i++ {
-				rms.Child = append(rms.Child, &cpb.MarkedSource{
-					PreText: objectName(res.At(i)),
-				})
 			}
 			fn.Child = append(fn.Child, rms)
 		}
@@ -189,6 +206,21 @@ func typeName(typ types.Type) string {
 		return "interface {...}"
 	case *types.Pointer:
 		return "*" + typeName(t.Elem())
+	case *types.Chan:
+		switch t.Dir() {
+		case types.SendOnly:
+			return "chan<- " + typeName(t.Elem())
+		case types.RecvOnly:
+			return "<-chan " + typeName(t.Elem())
+		default:
+			return "chan " + typeName(t.Elem())
+		}
+	case *types.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), typeName(t.Elem()))
+	case *types.Map:
+		return fmt.Sprintf("map[%s]%s", typeName(t.Key()), typeName(t.Elem()))
+	case *types.Slice:
+		return "[]" + typeName(t.Elem())
 	}
 	return typ.String()
 }
@@ -250,7 +282,7 @@ func rewriteMarkedSourceCorpus(ms *cpb.MarkedSource, corpus string) {
 		for i, def := range link.Definition {
 			v, err := kytheuri.ToVName(def)
 			if err != nil {
-				log.Printf("Error parsing ticket %q: %v", def, err)
+				log.Errorf("parsing ticket %q: %v", def, err)
 				continue
 			}
 			v.Corpus = corpus
@@ -271,7 +303,7 @@ func (e *emitter) emitCode(target *spb.VName, ms *cpb.MarkedSource) {
 		}
 		bits, err := proto.Marshal(ms)
 		if err != nil {
-			log.Printf("ERROR: Unable to marshal marked source: %v", err)
+			log.Errorf("Unable to marshal marked source: %v", err)
 			return
 		}
 		e.writeFact(target, facts.Code, string(bits))

@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package kythe.proto.serving;
 
-option go_package = "serving_go_proto";
+option go_package = "kythe.io/kythe/proto/serving_go_proto";
 option java_package = "com.google.devtools.kythe.proto";
 
 import "kythe/proto/common.proto";
@@ -113,6 +113,9 @@ message FileDirectory {
 
     // True if this entry is generated.
     bool generated = 4;
+
+    // Whether the FILE Entry did not have an associated text fact.
+    bool missing_text = 5;
   }
   enum Kind {
     UNKNOWN = 0;
@@ -140,7 +143,7 @@ message CorpusRoots {
 // A File is a specialized Node structure for file nodes.
 message File {
   string ticket = 1;
-  bytes text = 2;
+  optional bytes text = 2;
   string encoding = 3;
 
   FileInfo info = 4;
@@ -343,7 +346,7 @@ message PagedCrossReferences {
 
   // Whether the source node is incomplete.  This changes whether
   // /kythe/edge/defines edges are considered declarations or definitions.
-  // /kythe/edge/completes edges are always grouped as definitions.
+  // /kythe/edge/completedby edges are always grouped as definitions.
   bool incomplete = 5;
 
   // The source node's MarkedSource.

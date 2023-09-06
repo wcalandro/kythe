@@ -31,6 +31,7 @@ import * as ts from 'typescript';
 
 import * as indexer from './indexer';
 import * as kythe from './kythe';
+import {CompilationUnit, IndexerHost, Plugin} from './plugin_api';
 
 const KYTHE_PATH = process.env['KYTHE'] || '/opt/kythe';
 const RUNFILES = process.env['TEST_SRCDIR'];
@@ -81,6 +82,10 @@ function createTestCompilerHost(options: ts.CompilerOptions): ts.CompilerHost {
   return compilerHost;
 }
 
+function isTsFile(filename: string): boolean {
+  return filename.endsWith('.ts') || filename.endsWith('.tsx');
+}
+
 /**
  * verify runs the indexer against a test case and passes it through the
  * Kythe verifier.  It returns a Promise because the node subprocess API must
@@ -88,7 +93,7 @@ function createTestCompilerHost(options: ts.CompilerOptions): ts.CompilerHost {
  */
 function verify(
     host: ts.CompilerHost, options: ts.CompilerOptions, testCase: TestCase,
-    plugins?: indexer.Plugin[]): Promise<void> {
+    plugins?: Plugin[], emitRefCallOverIdentifier?: boolean): Promise<void> {
   const rootVName: kythe.VName = {
     corpus: 'testcorpus',
     root: '',
@@ -109,14 +114,13 @@ function verify(
   for (const file of testFiles) {
     fileVNames.set(file, {...rootVName, path: file});
   }
-  const enableEdgeReassignment = testCase.name.includes('enable_edge_reassignment');
 
   try {
-    const compilationUnit: indexer.CompilationUnit = {
+    const compilationUnit: CompilationUnit = {
       rootVName,
       fileVNames,
       srcs: testFiles,
-      allFiles: testFiles,
+      rootFiles: testFiles,
     };
     indexer.index(compilationUnit, {
       compilerOptions: options,
@@ -125,7 +129,7 @@ function verify(
         verifier.stdin.write(JSON.stringify(obj) + '\n');
       },
       plugins,
-      enableImportsEdgeReassignment: enableEdgeReassignment,
+      emitRefCallOverIdentifier,
     });
   } finally {
     // Ensure we close stdin on the verifier even on crashes, or otherwise
@@ -155,7 +159,7 @@ function collectTSFilesInDirectoryRecursively(dir: string, result: string[]) {
   for (const file of fs.readdirSync(dir, {withFileTypes: true})) {
     if (file.isDirectory()) {
       collectTSFilesInDirectoryRecursively(`${dir}/${file.name}`, result);
-    } else if (file.name.endsWith('.ts')) {
+    } else if (isTsFile(file.name)) {
       result.push(path.resolve(`${dir}/${file.name}`));
     }
   }
@@ -188,7 +192,7 @@ function getTestCases(options: ts.CompilerOptions, dir: string): TestCase[] {
       } else {
         result.push(...getTestCases(options, relativeName));
       }
-    } else if (file.name.endsWith('.ts')) {
+    } else if (isTsFile(file.name)) {
       result.push({
         name: relativeName,
         files: [path.resolve(relativeName)],
@@ -214,7 +218,7 @@ function filterTestCases(testCases: TestCase[], filters: string[]): TestCase[] {
   });
 }
 
-async function testIndexer(filters: string[], plugins?: indexer.Plugin[]) {
+async function testIndexer(filters: string[], plugins?: Plugin[]) {
   const config =
       indexer.loadTsConfig('testdata/tsconfig.for.tests.json', 'testdata');
   let testCases = getTestCases(config.options, 'testdata');
@@ -228,10 +232,11 @@ async function testIndexer(filters: string[], plugins?: indexer.Plugin[]) {
       // plugin.ts is tested by testPlugin() test.
       continue;
     }
+    const emitRefCallOverIdentifier = testCase.name.endsWith('_id.ts');
     const start = new Date().valueOf();
     process.stdout.write(`${testCase.name}: `);
     try {
-      await verify(host, config.options, testCase, plugins);
+      await verify(host, config.options, testCase, plugins, emitRefCallOverIdentifier);
     } catch (e) {
       console.log('FAIL');
       throw e;
@@ -243,9 +248,9 @@ async function testIndexer(filters: string[], plugins?: indexer.Plugin[]) {
 }
 
 async function testPlugin() {
-  const plugin: indexer.Plugin = {
+  const plugin: Plugin = {
     name: 'TestPlugin',
-    index(context: indexer.IndexerHost) {
+    index(context: IndexerHost) {
       for (const testPath of context.compilationUnit.srcs) {
         const pluginMod = {
           ...context.pathToVName(context.moduleName(testPath)),

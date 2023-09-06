@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package kythe.proto;
 
-option go_package = "filetree_go_proto";
+option go_package = "kythe.io/kythe/proto/filetree_go_proto";
 option java_package = "com.google.devtools.kythe.proto";
 
 // FileTreeService provides an interface to explore a tree of files.
@@ -50,6 +50,9 @@ message DirectoryRequest {
   string corpus = 1;
   string root = 2;
   string path = 3;
+
+  // Whether to return files that are missing text.
+  bool include_files_missing_text = 4;
 }
 
 message DirectoryReply {
@@ -77,6 +80,10 @@ message DirectoryReply {
 
     // True if the entry is generated.
     bool generated = 4;
+
+    // Whether the FILE entry is missing text or the DIRECTORY entry contains
+    // only entries with missing_text.
+    bool missing_text = 5;
   }
   enum Kind {
     UNKNOWN = 0;

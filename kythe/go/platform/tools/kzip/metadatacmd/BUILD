@@ -5,16 +5,16 @@ package(default_visibility = ["//kythe:default_visibility"])
 
 go_library(
     name = "metadatacmd",
-    srcs = [
-        "metadatacmd.go",
-    ],
+    srcs = ["metadatacmd.go"],
+    importpath = "kythe.io/kythe/go/platform/tools/kzip/metadatacmd",
     deps = [
         "//kythe/go/platform/kzip",
         "//kythe/go/platform/kzip/buildmetadata",
         "//kythe/go/platform/tools/kzip/flags",
         "//kythe/go/platform/vfs",
         "//kythe/go/util/cmdutil",
-        "@com_github_google_subcommands//:go_default_library",
+        "//kythe/go/util/log",
+        "@com_github_google_subcommands//:subcommands",
     ],
 )
 

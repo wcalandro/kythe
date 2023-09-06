@@ -70,6 +70,16 @@ java_verifier_test(
 )
 
 java_verifier_test(
+    name = "callgraph_ident_tests",
+    size = "small",
+    srcs = ["CallgraphIdent.java"],
+    indexer_opts = [
+        "--verbose",
+        "--emit_ref_call_over_identifier",
+    ],
+)
+
+java_verifier_test(
     name = "definitions_tests",
     size = "small",
     srcs = ["Definitions.java"],
@@ -232,6 +242,17 @@ java_verifier_test(
     name = "marked_source_tests",
     size = "small",
     srcs = ["MarkedSource.java"],
+    verifier_opts = [
+        "--ignore_dups",
+        "--convert_marked_source",
+    ],
+)
+
+java_verifier_test(
+    name = "rendered_code_tests",
+    size = "small",
+    srcs = ["RenderedCode.java"],
+    resolve_code_facts = True,
     verifier_opts = [
         "--ignore_dups",
         "--convert_marked_source",

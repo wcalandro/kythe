@@ -47,20 +47,14 @@ ABSL_FLAG(bool, experimental_drop_instantiation_independent_data, false,
           "instantiation-independent.");
 ABSL_FLAG(bool, report_profiling_events, false,
           "Write profiling events to standard error.");
-ABSL_FLAG(bool, experimental_index_lite, false,
-          "Drop uncommonly-used data from the index.");
-ABSL_FLAG(bool, experimental_drop_objc_fwd_class_docs, false,
+ABSL_FLAG(bool, experimental_drop_objc_fwd_class_docs, true,
           "Drop comments for Objective-C forward class declarations.");
-ABSL_FLAG(bool, experimental_drop_cpp_fwd_decl_docs, false,
+ABSL_FLAG(bool, experimental_drop_cpp_fwd_decl_docs, true,
           "Drop comments for C++ forward declarations.");
 ABSL_FLAG(int, experimental_usr_byte_size, 0,
           "Use this many bytes to represent a USR (or don't at all if 0).");
-ABSL_FLAG(bool, use_compilation_corpus_as_default, false,
+ABSL_FLAG(bool, use_compilation_corpus_as_default, true,
           "Use the CompilationUnit VName corpus as the default.");
-ABSL_FLAG(bool, experimental_record_dataflow_edges, false,
-          "Emit experimental dataflow edges.");
-ABSL_FLAG(bool, experimental_guess_proto_semantics, false,
-          "Guess proto semantics.");
 ABSL_FLAG(kythe::RE2Flag, template_instance_exclude_path_pattern,
           kythe::RE2Flag{},
           "If nonempty, a regex that matches files to be excluded from "
@@ -68,6 +62,10 @@ ABSL_FLAG(kythe::RE2Flag, template_instance_exclude_path_pattern,
 ABSL_FLAG(std::string, record_hashes_file, "", "Record hashes to this file.");
 ABSL_FLAG(bool, record_call_directness, false,
           "Record directness of function calls.");
+ABSL_FLAG(bool, emit_usr_corpus, false,
+          "Use the default corpus when emitting USR nodes.");
+ABSL_FLAG(bool, experimental_set_aliases_as_writes, false,
+          "Set protobuf aliases as writes.");
 
 namespace kythe {
 
@@ -86,9 +84,6 @@ int main(int argc, char* argv[]) {
   options.IgnoreUnimplemented = context.ignore_unimplemented()
                                     ? kythe::BehaviorOnUnimplemented::Continue
                                     : kythe::BehaviorOnUnimplemented::Abort;
-  options.Verbosity = absl::GetFlag(FLAGS_experimental_index_lite)
-                          ? kythe::Verbosity::Lite
-                          : kythe::Verbosity::Classic;
   options.ObjCFwdDocs =
       absl::GetFlag(FLAGS_experimental_drop_objc_fwd_class_docs)
           ? kythe::BehaviorOnFwdDeclComments::Ignore
@@ -99,12 +94,9 @@ int main(int argc, char* argv[]) {
   options.UsrByteSize = absl::GetFlag(FLAGS_experimental_usr_byte_size) <= 0
                             ? 0
                             : absl::GetFlag(FLAGS_experimental_usr_byte_size);
+  options.EmitUsrCorpus = absl::GetFlag(FLAGS_emit_usr_corpus);
   options.TemplateInstanceExcludePathPattern =
       absl::GetFlag(FLAGS_template_instance_exclude_path_pattern).value;
-  options.DataflowEdges =
-      absl::GetFlag(FLAGS_experimental_record_dataflow_edges)
-          ? kythe::EmitDataflowEdges::Yes
-          : kythe::EmitDataflowEdges::No;
   options.UseCompilationCorpusAsDefault =
       absl::GetFlag(FLAGS_use_compilation_corpus_as_default);
   options.DropInstantiationIndependentData =
@@ -134,9 +126,8 @@ int main(int argc, char* argv[]) {
 
     kythe::MetadataSupports meta_supports;
     auto proto = std::make_unique<ProtobufMetadataSupport>();
-    if (absl::GetFlag(FLAGS_experimental_guess_proto_semantics)) {
-      proto->GuessSemantics(true);
-    }
+    proto->SetAliasesAsWrites(
+        absl::GetFlag(FLAGS_experimental_set_aliases_as_writes));
     meta_supports.Add(std::move(proto));
     meta_supports.Add(std::make_unique<KytheMetadataSupport>());
 
