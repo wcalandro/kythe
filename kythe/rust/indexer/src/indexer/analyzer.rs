@@ -20,6 +20,8 @@ use super::docs::process_documentation;
 use super::entries::EntryEmitter;
 
 use analysis_rust_proto::CompilationUnit;
+use common_rust_proto::{Link, MarkedSource, MarkedSource_Kind};
+use protobuf::{Message, RepeatedField};
 use ra_ap_hir::{
     Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasAttrs, HasSource,
     InFile, Module, ModuleSource, Semantics, StructKind, VariantDef,
@@ -38,6 +40,7 @@ use storage_rust_proto::*;
 use triomphe::Arc;
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::path::Path;
 
 struct FileRange {
@@ -846,14 +849,17 @@ impl<'a> UnitAnalyzer<'a> {
                 }
                 _ => {}
             };
+
             // Emit all of the facts
             for (fact_name, fact_value) in facts.iter() {
                 self.emitter.emit_fact(&def_vname, fact_name, fact_value.to_vec())?;
             }
+
             // Try to get a parent VName and emit a childof edge
             if let Some(parent_vname) = self.get_parent_vname(db, &def) {
                 self.emitter.emit_edge(&def_vname, &parent_vname, "/kythe/edge/childof")?;
             }
+
             // See if there is any documentation
             let docs_with_rangemap = match def {
                 Definition::Adt(adt) => adt.attrs(db).docs_with_rangemap(db),
@@ -914,6 +920,11 @@ impl<'a> UnitAnalyzer<'a> {
                     }
                 }
             }
+
+            // Generate and emit MarkedSource
+            if let Some(marked_source) = self.gen_marked_source(def, db) {
+                self.emitter.emit_fact(&def_vname, "/kythe/code", marked_source)?;
+            }
         } else {
             // This is a reference, so emit the corresponding edge
             let edge_kind = if matches!(&def, Definition::Macro(_)) {
@@ -967,6 +978,48 @@ impl<'a> UnitAnalyzer<'a> {
             "The kythe-rust-project.json file could not be found in the Compilation Unit"
                 .to_string(),
         ))
+    }
+
+    fn gen_marked_source(&mut self, def: Definition, db: &RootDatabase) -> Option<Vec<u8>> {
+        let ms_children: Vec<MarkedSource> = match &def {
+            Definition::Adt(adt) => {
+                let mut identifier = MarkedSource::new();
+                identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
+                identifier.set_pre_text(adt.name(db).to_smol_str().to_string());
+
+                let mut vname = self.gen_base_vname();
+                vname.set_signature(self.get_signature(db, def)?);
+                let mut link = Link::new();
+                link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
+                identifier.set_link(RepeatedField::from_vec(vec![link]));
+
+                Some(vec![identifier])
+            }
+            Definition::Local(local) => {
+                let mut identifier = MarkedSource::new();
+                identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
+                identifier.set_pre_text(local.name(db).to_smol_str().to_string());
+
+                let mut vname = self.gen_base_vname();
+                vname.set_signature(self.get_signature(db, def)?);
+                let mut link = Link::new();
+                link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
+                identifier.set_link(RepeatedField::from_vec(vec![link]));
+
+                Some(vec![identifier])
+            }
+            _ => None,
+        }?;
+
+        let marked_source = if ms_children.len() == 1 {
+            ms_children[0].to_owned()
+        } else {
+            let mut ms = MarkedSource::new();
+            ms.set_kind(MarkedSource_Kind::BOX);
+            ms.set_child(RepeatedField::from_vec(ms_children));
+            ms
+        };
+        marked_source.write_to_bytes().ok()
     }
 }
 
@@ -1111,4 +1164,25 @@ fn get_definition_range(
         }
         _ => None,
     }
+}
+
+/// Converts a VName to a kythe URI
+fn vname_to_kythe_uri(vname: &VName) -> String {
+    let mut uri = String::from("kythe:");
+    if !vname.get_corpus().is_empty() {
+        write!(uri, "//{}", vname.get_corpus()).unwrap();
+    }
+    if !vname.get_language().is_empty() {
+        write!(uri, "?lang={}", vname.get_language()).unwrap();
+    }
+    if !vname.get_path().is_empty() {
+        write!(uri, "?path={}", vname.get_path()).unwrap();
+    }
+    if !vname.get_root().is_empty() {
+        write!(uri, "?root={}", vname.get_root()).unwrap();
+    }
+    if !vname.get_signature().is_empty() {
+        write!(uri, "#{}", vname.get_signature()).unwrap();
+    }
+    uri
 }

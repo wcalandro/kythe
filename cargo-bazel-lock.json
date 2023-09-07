@@ -1,5 +1,5 @@
 {
-  "checksum": "6f84c18fbf6a41ed06bbb523161c31e63d72ab29f1f2522cf9facbd99018e3b6",
+  "checksum": "4e430e577a7e4f8377d9127bcb8fb53be5144f8a130e4287b86c85c0e84214c9",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -292,7 +292,7 @@
             ],
             "cfg(unix)": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ],
@@ -587,7 +587,7 @@
               "target": "bzip2_sys"
             },
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -639,7 +639,7 @@
               "target": "build_script_build"
             },
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -1446,19 +1446,19 @@
           "selects": {
             "aarch64-apple-darwin": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ],
             "aarch64-linux-android": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ],
             "cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ]
@@ -2769,7 +2769,7 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -2808,7 +2808,7 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -3360,13 +3360,13 @@
       },
       "license": "MIT/Apache-2.0"
     },
-    "libc 0.2.139": {
+    "libc 0.2.147": {
       "name": "libc",
-      "version": "0.2.139",
+      "version": "0.2.147",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/libc/0.2.139/download",
-          "sha256": "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
+          "url": "https://crates.io/api/v1/crates/libc/0.2.147/download",
+          "sha256": "b4668fb0ea861c1df094127ac5f1da3409a82116a4ba74fca2e58ef927159bb3"
         }
       },
       "targets": [
@@ -3404,14 +3404,14 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "build_script_build"
             }
           ],
           "selects": {}
         },
         "edition": "2015",
-        "version": "0.2.139"
+        "version": "0.2.147"
       },
       "build_script_attrs": {
         "data_glob": [
@@ -3939,7 +3939,7 @@
             ],
             "cfg(not(windows))": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ]
@@ -4170,7 +4170,7 @@
             ],
             "cfg(unix)": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ],
@@ -4250,7 +4250,7 @@
             ],
             "cfg(unix)": [
               {
-                "id": "libc 0.2.139",
+                "id": "libc 0.2.147",
                 "target": "libc"
               }
             ],
@@ -4337,7 +4337,7 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             },
             {
@@ -4380,7 +4380,7 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -6666,7 +6666,7 @@
               "target": "la_arena"
             },
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             },
             {
@@ -6839,7 +6839,7 @@
               "target": "jod_thread"
             },
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],
@@ -8668,7 +8668,7 @@
         "deps": {
           "common": [
             {
-              "id": "libc 0.2.139",
+              "id": "libc 0.2.147",
               "target": "libc"
             }
           ],

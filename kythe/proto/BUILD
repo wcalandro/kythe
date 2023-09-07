@@ -80,6 +80,12 @@ java_proto_library(
     deps = [":common_proto"],
 )
 
+rust_proto_library(
+    name = "common_rust_proto",
+    visibility = [PUBLIC_PROTO_VISIBILITY],
+    deps = [":common_proto"],
+)
+
 # Public Kythe GraphStore analyzer output format
 proto_library(
     name = "storage_proto",

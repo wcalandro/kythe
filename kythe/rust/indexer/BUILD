@@ -12,6 +12,7 @@ rust_library(
     edition = "2021",
     deps = [
         "//kythe/proto:analysis_rust_proto",
+        "//kythe/proto:common_rust_proto",
         "//kythe/proto:storage_rust_proto",
         "@crate_index//:base64",
         "@crate_index//:hex",
