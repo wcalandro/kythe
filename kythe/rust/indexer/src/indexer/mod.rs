@@ -15,6 +15,7 @@
 pub mod analyzer;
 mod docs;
 pub mod entries;
+mod kytheuri;
 
 use crate::error::KytheError;
 use crate::providers::FileProvider;

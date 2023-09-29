@@ -89,7 +89,7 @@ ruby_bundle(
 load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository", "render_config")
 
 # Run `CARGO_BAZEL_REPIN=1 bazel sync --only=crate_index` after updating
-rust_analyzer_version = "=0.0.165"
+rust_analyzer_version = "=0.0.172"
 
 crates_repository(
     name = "crate_index",

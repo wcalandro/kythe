@@ -18,16 +18,20 @@ use crate::writer::KytheWriter;
 
 use super::docs::process_documentation;
 use super::entries::EntryEmitter;
+use super::kytheuri::vname_to_kythe_uri;
 
 use analysis_rust_proto::CompilationUnit;
 use common_rust_proto::{Link, MarkedSource, MarkedSource_Kind};
 use protobuf::{Message, RepeatedField};
 use ra_ap_hir::{
     Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasAttrs, HasSource,
-    InFile, Module, ModuleSource, Semantics, StructKind, VariantDef,
+    HirDisplay, InFile, Local, Module, ModuleSource, Semantics, StructKind, VariantDef,
 };
+use ra_ap_hir_def::visibility::Visibility;
 use ra_ap_ide::{AnalysisHost, Change, RootDatabase, SourceRoot};
-use ra_ap_ide_db::defs::{Definition, IdentClass};
+use ra_ap_ide_db::defs::Definition;
+use ra_ap_ide_db::documentation::docs_with_rangemap;
+use ra_ap_ide_db::helpers::get_definition;
 use ra_ap_paths::AbsPath;
 use ra_ap_project_model::{ProjectJson, ProjectJsonData, ProjectWorkspace};
 use ra_ap_syntax::{
@@ -40,7 +44,6 @@ use storage_rust_proto::*;
 use triomphe::Arc;
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::path::Path;
 
 struct FileRange {
@@ -390,7 +393,7 @@ impl<'a> UnitAnalyzer<'a> {
                 // for the time being
                 _ => {}
             };
-            if let Some((doc, range_map)) = module.attrs(db).docs_with_rangemap(db) {
+            if let Some((doc, range_map)) = docs_with_rangemap(db, &module.attrs(db)) {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
@@ -861,19 +864,19 @@ impl<'a> UnitAnalyzer<'a> {
             }
 
             // See if there is any documentation
-            let docs_with_rangemap = match def {
-                Definition::Adt(adt) => adt.attrs(db).docs_with_rangemap(db),
-                Definition::Const(const_) => const_.attrs(db).docs_with_rangemap(db),
-                Definition::Field(field) => field.attrs(db).docs_with_rangemap(db),
-                Definition::Function(function) => function.attrs(db).docs_with_rangemap(db),
-                Definition::Macro(macro_) => macro_.attrs(db).docs_with_rangemap(db),
-                Definition::Static(static_) => static_.attrs(db).docs_with_rangemap(db),
-                Definition::Trait(trait_) => trait_.attrs(db).docs_with_rangemap(db),
-                Definition::TypeAlias(talias) => talias.attrs(db).docs_with_rangemap(db),
-                Definition::Variant(variant) => variant.attrs(db).docs_with_rangemap(db),
+            let docs_option = match def {
+                Definition::Adt(adt) => docs_with_rangemap(db, &adt.attrs(db)),
+                Definition::Const(const_) => docs_with_rangemap(db, &const_.attrs(db)),
+                Definition::Field(field) => docs_with_rangemap(db, &field.attrs(db)),
+                Definition::Function(function) => docs_with_rangemap(db, &function.attrs(db)),
+                Definition::Macro(macro_) => docs_with_rangemap(db, &macro_.attrs(db)),
+                Definition::Static(static_) => docs_with_rangemap(db, &static_.attrs(db)),
+                Definition::Trait(trait_) => docs_with_rangemap(db, &trait_.attrs(db)),
+                Definition::TypeAlias(talias) => docs_with_rangemap(db, &talias.attrs(db)),
+                Definition::Variant(variant) => docs_with_rangemap(db, &variant.attrs(db)),
                 _ => None,
             };
-            if let Some((doc, range_map)) = docs_with_rangemap {
+            if let Some((doc, range_map)) = docs_option {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
                 self.emitter.emit_fact(&doc_vname, "/kythe/node/kind", b"doc".to_vec())?;
@@ -983,30 +986,69 @@ impl<'a> UnitAnalyzer<'a> {
     fn gen_marked_source(&mut self, def: Definition, db: &RootDatabase) -> Option<Vec<u8>> {
         let ms_children: Vec<MarkedSource> = match &def {
             Definition::Adt(adt) => {
+                let mut children = vec![];
+
+                // Add pub modifier if this is public
+                if let Some(visibility) = def.visibility(db) {
+                    if visibility == Visibility::Public {
+                        let mut public_modifier = MarkedSource::new();
+                        public_modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                        public_modifier.set_pre_text("pub".into());
+                        public_modifier.set_post_text(" ".into());
+                        children.push(public_modifier);
+                    }
+                }
+
+                // Add ADT type as a modifier
+                let mut adt_modifier = MarkedSource::new();
+                let adt_type = match &adt {
+                    Adt::Enum(_) => "enum",
+                    Adt::Struct(_) => "struct",
+                    Adt::Union(_) => "union",
+                };
+                adt_modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                adt_modifier.set_pre_text(adt_type.into());
+                adt_modifier.set_post_text(" ".into());
+                children.push(adt_modifier);
+
+                // Add identifier and set link
                 let mut identifier = MarkedSource::new();
                 identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
                 identifier.set_pre_text(adt.name(db).to_smol_str().to_string());
-
                 let mut vname = self.gen_base_vname();
                 vname.set_signature(self.get_signature(db, def)?);
                 let mut link = Link::new();
                 link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
                 identifier.set_link(RepeatedField::from_vec(vec![link]));
+                children.push(identifier);
 
-                Some(vec![identifier])
+                Some(children)
             }
             Definition::Local(local) => {
+                let mut ms = MarkedSource::new();
+                ms.set_kind(MarkedSource_Kind::BOX);
+                ms.set_post_child_text(": ".into());
+                let mut children = vec![];
+
+                // Add identifier and set link
                 let mut identifier = MarkedSource::new();
                 identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
                 identifier.set_pre_text(local.name(db).to_smol_str().to_string());
-
                 let mut vname = self.gen_base_vname();
                 vname.set_signature(self.get_signature(db, def)?);
                 let mut link = Link::new();
                 link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
                 identifier.set_link(RepeatedField::from_vec(vec![link]));
+                children.push(identifier);
 
-                Some(vec![identifier])
+                // Add type
+                let mut type_ms = MarkedSource::new();
+                type_ms.set_kind(MarkedSource_Kind::TYPE);
+                type_ms.set_pre_text(format!("{}", local.ty(db).display(db)));
+                children.push(type_ms);
+
+                ms.set_child(RepeatedField::from_vec(children));
+                Some(vec![ms])
             }
             _ => None,
         }?;
@@ -1038,23 +1080,12 @@ fn analysis_to_storage_vname(analysis_vname: &analysis_rust_proto::VName) -> VNa
 /// id of the root module is present in the provided slice of u32 file ids
 fn get_root_module_in_file_ids(db: &RootDatabase, file_ids: &[u32]) -> Option<Module> {
     let root_modules: Vec<Module> =
-        Crate::all(db).into_iter().map(|krate| krate.root_module(db)).collect();
+        Crate::all(db).into_iter().map(|krate| krate.root_module()).collect();
     for module in root_modules {
         let def_source = module.definition_source(db);
         let file_id = def_source.file_id.original_file(db);
         if file_ids.contains(&file_id.0) {
             return Some(module);
-        }
-    }
-    None
-}
-
-/// Attempt to get a token's definition from the semantic database
-fn get_definition(sema: &Semantics<'_, RootDatabase>, token: SyntaxToken) -> Option<Definition> {
-    for token in sema.descend_into_macros(token) {
-        let def = IdentClass::classify_token(sema, &token).map(IdentClass::definitions_no_ops);
-        if let Some(&[x]) = def.as_deref() {
-            return Some(x);
         }
     }
     None
@@ -1164,25 +1195,4 @@ fn get_definition_range(
         }
         _ => None,
     }
-}
-
-/// Converts a VName to a kythe URI
-fn vname_to_kythe_uri(vname: &VName) -> String {
-    let mut uri = String::from("kythe:");
-    if !vname.get_corpus().is_empty() {
-        write!(uri, "//{}", vname.get_corpus()).unwrap();
-    }
-    if !vname.get_language().is_empty() {
-        write!(uri, "?lang={}", vname.get_language()).unwrap();
-    }
-    if !vname.get_path().is_empty() {
-        write!(uri, "?path={}", vname.get_path()).unwrap();
-    }
-    if !vname.get_root().is_empty() {
-        write!(uri, "?root={}", vname.get_root()).unwrap();
-    }
-    if !vname.get_signature().is_empty() {
-        write!(uri, "#{}", vname.get_signature()).unwrap();
-    }
-    uri
 }

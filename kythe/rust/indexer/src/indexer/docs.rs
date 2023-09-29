@@ -21,10 +21,10 @@
 // code public in the library.
 
 use pulldown_cmark::{BrokenLink, CowStr, Event, Options, Parser, Tag};
-use ra_ap_hir::{Documentation, HasAttrs, Namespace};
-use ra_ap_hir_def::attr::DocsRangeMap;
+use ra_ap_hir::Namespace;
 use ra_ap_ide::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
+use ra_ap_ide_db::documentation::{DocsRangeMap, Documentation, HasDocs};
 use ra_ap_syntax::TextRange;
 use regex::Regex;
 
@@ -147,7 +147,8 @@ fn resolve_doc_path_for_def(
         | Definition::Local(_)
         | Definition::GenericParam(_)
         | Definition::Label(_)
-        | Definition::DeriveHelper(_) => None,
+        | Definition::DeriveHelper(_)
+        | Definition::ExternCrateDecl(_) => None,
     }
     .map(Definition::from)
 }
