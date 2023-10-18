@@ -144,11 +144,11 @@ impl<'a> UnitAnalyzer<'a> {
             let file_contents: String =
                 if let Some(file_digest) = self.file_digests.get(source_file) {
                     let file_bytes = self.provider.contents(source_file, file_digest)?;
-                    String::from_utf8(file_bytes).map_err(|_| {
-                        KytheError::IndexerError(format!(
-                            "Failed to read file {source_file} as UTF8 string"
-                        ))
-                    })?
+                    if let Ok(string_contents) = String::from_utf8(file_bytes) {
+                        string_contents
+                    } else {
+                        continue;
+                    }
                 } else {
                     return Err(KytheError::FileNotFoundError(source_file.to_string()));
                 };
@@ -186,19 +186,19 @@ impl<'a> UnitAnalyzer<'a> {
             }
             let digest = required_input.get_info().get_digest().to_string();
             let file_bytes = self.provider.contents(&path, &digest)?;
+            let file_text = if let Ok(text) = String::from_utf8(file_bytes.clone()) {
+                text
+            } else {
+                continue;
+            };
 
             // Add to VFS
             let vfs_path = VfsPath::from(project_root.join(Path::new(&path)));
-            vfs.set_file_contents(vfs_path.clone(), Some(file_bytes.clone()));
+            vfs.set_file_contents(vfs_path.clone(), Some(file_bytes));
 
-            // Attempt to add to the analysis change
+            // Add to the analysis change
             let file_id = vfs.file_id(&vfs_path).unwrap();
-            let text = String::from_utf8(file_bytes).map_err(|e| {
-                KytheError::IndexerError(format!(
-                    "Failed to serialize the contents of {path} as a UTF-8 string: {e}"
-                ))
-            })?;
-            analysis_change.change_file(file_id, Some(Arc::from(text)));
+            analysis_change.change_file(file_id, Some(Arc::from(file_text)));
 
             // Add file information to relevant hashmaps
             self.file_id_to_path.insert(file_id.0, path.clone());

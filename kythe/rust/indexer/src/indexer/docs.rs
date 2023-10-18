@@ -52,24 +52,36 @@ pub fn process_documentation(
     }
 
     let doc_string = docs.as_str().to_string();
+    let doc_bytes = doc_string.as_bytes();
     let doc_chars: Vec<char> = doc_string.chars().collect();
-    let mut doc_cursor: usize = 0;
+    let mut byte_cursor: usize = 0;
+    let mut char_cursor: usize = 0;
     let mut refs = Vec::new();
     let mut new_doc = Vec::new();
     for (range, link_def) in link_defs.into_iter() {
-        while doc_cursor < range.start().into() && doc_cursor < doc_string.len() {
-            let c = doc_chars[doc_cursor];
+        while byte_cursor < range.start().into() && char_cursor < doc_chars.len() {
+            let c = doc_chars[char_cursor];
             if c == '\\' || c == '[' || c == ']' {
                 new_doc.push('\\')
             }
             new_doc.push(c);
-            doc_cursor += 1;
+            byte_cursor += c.len_utf8();
+            char_cursor += 1;
         }
 
         let re = Regex::new(r"\[(?P<title>[^\]]+)\]").unwrap();
-        let title = if let Some(captures) =
-            re.captures(&doc_string[range.start().into()..range.end().into()])
-        {
+        let range_bytes = &doc_bytes[range.start().into()..range.end().into()];
+        let range_text_result = String::from_utf8(range_bytes.to_vec());
+        if range_text_result.is_err() {
+            while byte_cursor < range.end().into() && char_cursor < doc_chars.len() {
+                let c = doc_chars[char_cursor];
+                byte_cursor += c.len_utf8();
+                char_cursor += 1;
+            }
+            continue;
+        }
+        let range_text = range_text_result.unwrap();
+        let title = if let Some(captures) = re.captures(&range_text) {
             captures["title"].to_string()
         } else {
             String::from("unknown")
@@ -83,15 +95,16 @@ pub fn process_documentation(
         } else {
             new_doc.extend(title.chars());
         }
-        doc_cursor = range.end().into();
+        byte_cursor = range.end().into();
+        char_cursor += range_text.chars().collect::<Vec<_>>().len();
     }
-    while doc_cursor < doc_string.len() {
-        let c = doc_chars[doc_cursor];
+    while char_cursor < doc_chars.len() {
+        let c = doc_chars[char_cursor];
         if c == '\\' || c == '[' || c == ']' {
             new_doc.push('\\')
         }
         new_doc.push(c);
-        doc_cursor += 1;
+        char_cursor += 1;
     }
     (String::from_iter(new_doc), refs)
 }
