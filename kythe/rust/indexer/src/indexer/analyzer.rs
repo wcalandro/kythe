@@ -1375,11 +1375,18 @@ impl<'a> UnitAnalyzer<'a> {
             Definition::Local(local) => {
                 let mut children = vec![];
                 if let Some(self_param) = local.as_self_param(db) {
-                    let modifier = match self_param.access(db) {
+                    let mut modifier = match self_param.access(db) {
                         Access::Shared => "&",
                         Access::Exclusive => "&mut ",
-                        Access::Owned => "",
+                        Access::Owned => {
+                            if local.is_mut(db) {
+                                "mut "
+                            } else {
+                                ""
+                            }
+                        }
                     };
+
                     if !modifier.is_empty() {
                         let mut mod_ms = MarkedSource::new();
                         mod_ms.set_kind(MarkedSource_Kind::MODIFIER);
