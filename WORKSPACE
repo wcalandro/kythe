@@ -133,6 +133,9 @@ crates_repository(
         "ra_ap_ide_db": crate.spec(
             version = rust_analyzer_version,
         ),
+        "ra_ap_load-cargo": crate.spec(
+            version = rust_analyzer_version,
+        ),
         "ra_ap_paths": crate.spec(
             version = rust_analyzer_version,
         ),

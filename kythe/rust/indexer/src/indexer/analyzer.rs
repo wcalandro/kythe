@@ -29,17 +29,18 @@ use ra_ap_hir::{
     Semantics, StructKind, VariantDef,
 };
 use ra_ap_hir_def::visibility::Visibility;
-use ra_ap_ide::{AnalysisHost, Change, RootDatabase, SourceRoot};
+use ra_ap_ide::{AnalysisHost, Change, FileId, RootDatabase};
 use ra_ap_ide_db::defs::{Definition, IdentClass};
 use ra_ap_ide_db::documentation::docs_with_rangemap;
 use ra_ap_ide_db::helpers::get_definition;
+use ra_ap_load_cargo::ProjectFolders;
 use ra_ap_paths::AbsPath;
 use ra_ap_project_model::{ProjectJson, ProjectJsonData, ProjectWorkspace};
 use ra_ap_syntax::{
     ast::{AstNode, HasName},
     NodeOrToken, SyntaxKind, SyntaxToken, TextRange, TextSize, T,
 };
-use ra_ap_vfs::{file_set::FileSetConfigBuilder, Vfs, VfsPath};
+use ra_ap_vfs::{Vfs, VfsPath};
 use rustc_hash::FxHashMap;
 use storage_rust_proto::*;
 use triomphe::Arc;
@@ -214,49 +215,16 @@ impl<'a> UnitAnalyzer<'a> {
         // Generate and set the crate graph
         let (crate_graph, _) = workspace.to_crate_graph(
             &mut |path: &AbsPath| {
-                let source_path =
-                    path.strip_prefix(project_root).unwrap().as_ref().display().to_string();
-                if let Some(file_digest) = self.file_digests.get(&source_path) {
-                    let file_bytes = self.provider.contents(&source_path, file_digest).ok();
-                    let vfs_path = VfsPath::from(path.to_path_buf());
-                    vfs.set_file_contents(vfs_path.clone(), file_bytes);
-                    vfs.file_id(&vfs_path)
-                } else {
-                    None
-                }
+                // We already loaded the files so we just have to give it the file id
+                vfs.file_id(&VfsPath::from(path.to_path_buf()))
             },
             &extra_env,
         );
         analysis_change.set_crate_graph(crate_graph);
 
         // Generate and set the roots
-        let mut fsc_builder = FileSetConfigBuilder::default();
-        let mut local_filesets = Vec::new();
-        let workspace_roots = workspace.to_roots();
-        for root in workspace_roots {
-            let mut paths = Vec::new();
-            for path in root.include {
-                paths.push(VfsPath::from(path));
-            }
-            if root.is_local {
-                local_filesets.push(fsc_builder.len());
-            }
-            fsc_builder.add_file_set(paths);
-        }
-        let fsc = fsc_builder.build();
-        let source_roots: Vec<SourceRoot> = fsc
-            .partition(&vfs)
-            .iter()
-            .enumerate()
-            .map(|(idx, file_set)| {
-                let is_local = local_filesets.contains(&idx);
-                if is_local {
-                    SourceRoot::new_local(file_set.clone())
-                } else {
-                    SourceRoot::new_library(file_set.clone())
-                }
-            })
-            .collect();
+        let project_folders = ProjectFolders::new(&[workspace], &[]);
+        let source_roots = project_folders.source_root_config.partition(&vfs);
         analysis_change.set_roots(source_roots);
 
         // Create the analysis host and apply the change
@@ -280,7 +248,7 @@ impl<'a> UnitAnalyzer<'a> {
         let semantics = Semantics::new(db);
         for file_id in source_file_ids {
             let tokens = semantics
-                .parse(ra_ap_ide::FileId(file_id))
+                .parse(FileId(file_id))
                 .syntax()
                 .descendants_with_tokens()
                 .filter_map(|x| match x {

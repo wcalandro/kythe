@@ -23,6 +23,7 @@ rust_library(
         "@crate_index//:ra_ap_hir_def",
         "@crate_index//:ra_ap_ide",
         "@crate_index//:ra_ap_ide_db",
+        "@crate_index//:ra_ap_load-cargo",
         "@crate_index//:ra_ap_paths",
         "@crate_index//:ra_ap_project_model",
         "@crate_index//:ra_ap_syntax",
