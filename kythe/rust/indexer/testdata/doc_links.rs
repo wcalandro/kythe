@@ -32,9 +32,9 @@ fn doc1() {}
 //- Doc1 param.8 Static
 
 //- @+5"Trait2" defines/binding Trait2
-//- @"[`Trait2::Type`]" ref Trait2Type
-//- @"[`Trait2::CONST`]" ref Trait2Const
-//- @"[`function`](Trait2::function)" ref Trait2Function
+//- @"[`Trait2::Type`]" ref/doc Trait2Type
+//- @"[`Trait2::CONST`]" ref/doc Trait2Const
+//- @"[`function`](Trait2::function)" ref/doc Trait2Function
 /// [`Trait2::Type`] [`invalid`] [`Trait2::CONST`] [`function`](Trait2::function)
 trait Trait2 {
     //- @Type defines/binding Trait2Type

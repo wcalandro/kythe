@@ -146,6 +146,13 @@ rust_indexer_test(
 )
 
 rust_indexer_test(
+    name = "markedsource_test",
+    srcs = ["testdata/markedsource.rs"],
+    has_marked_source = True,
+    resolve_code_facts = True,
+)
+
+rust_indexer_test(
     name = "modules_test",
     srcs = glob(["testdata/modules/*"]),
 )

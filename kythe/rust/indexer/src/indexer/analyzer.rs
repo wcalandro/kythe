@@ -24,12 +24,13 @@ use analysis_rust_proto::CompilationUnit;
 use common_rust_proto::{Link, MarkedSource, MarkedSource_Kind};
 use protobuf::{Message, RepeatedField};
 use ra_ap_hir::{
-    Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, HasAttrs, HasSource,
-    HirDisplay, InFile, Local, Module, ModuleSource, Semantics, StructKind, VariantDef,
+    Access, Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, GenericDef,
+    GenericParam, HasAttrs, HasSource, HirDisplay, InFile, MacroKind, Module, ModuleSource,
+    Semantics, StructKind, VariantDef,
 };
 use ra_ap_hir_def::visibility::Visibility;
 use ra_ap_ide::{AnalysisHost, Change, RootDatabase, SourceRoot};
-use ra_ap_ide_db::defs::Definition;
+use ra_ap_ide_db::defs::{Definition, IdentClass};
 use ra_ap_ide_db::documentation::docs_with_rangemap;
 use ra_ap_ide_db::helpers::get_definition;
 use ra_ap_paths::AbsPath;
@@ -289,8 +290,8 @@ impl<'a> UnitAnalyzer<'a> {
                 .filter(|token| {
                     matches!(
                         token.kind(),
-                        SyntaxKind::IDENT
-                            | SyntaxKind::LIFETIME_IDENT
+                        T![ident]
+                            | T![lifetime_ident]
                             | T![crate]
                             | T![super]
                             | T![self]
@@ -325,6 +326,7 @@ impl<'a> UnitAnalyzer<'a> {
         let mut module_to_vname: HashMap<Module, VName> = HashMap::new();
 
         for module in modules {
+            let def = Definition::Module(module);
             let def_source = module.definition_source(db);
             let file_id = def_source.file_id.original_file(db);
 
@@ -343,8 +345,7 @@ impl<'a> UnitAnalyzer<'a> {
                 def_vname.set_signature(format!("{parent_signature}::{name}"));
             }
             module_to_vname.insert(module, def_vname.clone());
-            self.def_to_signature
-                .insert(Definition::Module(module), def_vname.get_signature().to_string());
+            self.def_to_signature.insert(def, def_vname.get_signature().to_string());
 
             // Emit the facts about the module
             self.emitter.emit_fact(&def_vname, "/kythe/node/kind", b"record".to_vec())?;
@@ -356,6 +357,7 @@ impl<'a> UnitAnalyzer<'a> {
                 self.emitter.emit_edge(&def_vname, &vname, "/kythe/edge/childof")?;
             }
 
+            // Emit the anchor for the module
             let mut anchor_vname = self.file_id_to_vname.get(&file_id.0).unwrap().clone();
             anchor_vname.set_signature(format!("{}_anchor", def_vname.get_signature()));
             match def_source.value {
@@ -374,25 +376,28 @@ impl<'a> UnitAnalyzer<'a> {
                         "/kythe/edge/defines/implicit",
                     )?;
                 }
-                ModuleSource::Module(module) => {
-                    let name = module.name().unwrap();
-                    let range = InFile::new(def_source.file_id, name.syntax())
-                        .original_file_range_opt(db)
-                        .map(|it| it.range);
-                    if let Some(range) = range {
-                        let start = u32::from(range.start());
-                        let end = u32::from(range.end());
-                        self.emitter.emit_anchor(&anchor_vname, &def_vname, start, end)?;
-                    } else {
-                        // TODO: We'll have to emit some diagnostic about not
-                        // being able to find the
-                        // identifier
+                ModuleSource::Module(m) => {
+                    if let Some(name) = m.name() {
+                        let range = InFile::new(def_source.file_id, name.syntax())
+                            .original_file_range_opt(db)
+                            .map(|it| it.range);
+                        if let Some(range) = range {
+                            let start = u32::from(range.start());
+                            let end = u32::from(range.end());
+                            self.emitter.emit_anchor(&anchor_vname, &def_vname, start, end)?;
+                        } else {
+                            // TODO: We'll have to emit some diagnostic about
+                            // not being able to
+                            // find the identifier
+                        }
                     }
                 }
                 // Not sure when a module would be defined in a block expression but we'll ignore it
                 // for the time being
                 _ => {}
             };
+
+            // Emit module documentation if it is present
             if let Some((doc, range_map)) = docs_with_rangemap(db, &module.attrs(db)) {
                 let mut doc_vname = def_vname.clone();
                 doc_vname.set_signature(format!("{}::(DOC)", def_vname.get_signature()));
@@ -401,7 +406,6 @@ impl<'a> UnitAnalyzer<'a> {
 
                 // Process the documentation, emit the text, and emit any params present in the
                 // text
-                let def = Definition::Module(module);
                 let (doc_text, doc_refs) = process_documentation(&def, &doc, &range_map, db);
                 self.emitter.emit_fact(&doc_vname, "/kythe/text", doc_text.into())?;
                 for (i, doc_ref) in doc_refs.iter().enumerate() {
@@ -436,10 +440,19 @@ impl<'a> UnitAnalyzer<'a> {
                                 "/kythe/loc/end",
                                 range_end.to_string().into_bytes().to_vec(),
                             )?;
-                            self.emitter.emit_edge(&ref_anchor, &ref_vname, "/kythe/edge/ref")?;
+                            self.emitter.emit_edge(
+                                &ref_anchor,
+                                &ref_vname,
+                                "/kythe/edge/ref/doc",
+                            )?;
                         }
                     }
                 }
+            }
+
+            // Generate and emit MarkedSource
+            if let Some(marked_source) = self.gen_marked_source(def, db) {
+                self.emitter.emit_fact(&def_vname, "/kythe/code", marked_source)?;
             }
         }
 
@@ -460,7 +473,7 @@ impl<'a> UnitAnalyzer<'a> {
                 let module_signature =
                     self.get_signature(db, Definition::Module(adt.module(db)))?;
                 match adt {
-                    Adt::Enum(_) => Some(format!("{module_signature}::ENUM({name}")),
+                    Adt::Enum(_) => Some(format!("{module_signature}::ENUM({name})")),
                     Adt::Struct(_) => Some(format!("{module_signature}::STRUCT({name})")),
                     Adt::Union(_) => Some(format!("{module_signature}::UNION({name})")),
                 }
@@ -502,6 +515,22 @@ impl<'a> UnitAnalyzer<'a> {
                 }?;
                 Some(format!("{parent_signature}::FUNCTION({name})"))
             }
+            Definition::GenericParam(param) => {
+                let name = param.name(db).to_smol_str();
+                let parent_signature = match param.parent() {
+                    GenericDef::Function(f) => self.get_signature(db, Definition::Function(f)),
+                    GenericDef::Adt(adt) => self.get_signature(db, Definition::Adt(adt)),
+                    GenericDef::Trait(t) => self.get_signature(db, Definition::Trait(t)),
+                    GenericDef::TraitAlias(ta) => {
+                        self.get_signature(db, Definition::TraitAlias(ta))
+                    }
+                    GenericDef::TypeAlias(ta) => self.get_signature(db, Definition::TypeAlias(ta)),
+                    GenericDef::Variant(v) => self.get_signature(db, Definition::Variant(v)),
+                    GenericDef::Const(c) => self.get_signature(db, Definition::Const(c)),
+                    _ => None,
+                }?;
+                Some(format!("{parent_signature}::TVAR({name})"))
+            }
             Definition::Label(label) => {
                 let name = label.name(db).to_smol_str();
                 let range = label.source(db).value.syntax().text_range();
@@ -512,7 +541,7 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-                    DefWithBody::InTypeConst(_) => todo!(),
+                    DefWithBody::InTypeConst(_) => None, // Not sure what this is
                 }?;
                 Some(format!("{parent_signature}::LABEL({name}|{start}-{end})"))
             }
@@ -527,7 +556,7 @@ impl<'a> UnitAnalyzer<'a> {
                     DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                     DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                     DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-                    DefWithBody::InTypeConst(_) => todo!(),
+                    DefWithBody::InTypeConst(_) => None, // Not sure what this is
                 }?;
                 Some(format!("{parent_signature}::LOCAL({name}|{start}-{end})"))
             }
@@ -563,6 +592,12 @@ impl<'a> UnitAnalyzer<'a> {
                 let module_signature =
                     self.get_signature(db, Definition::Module(trate.module(db)))?;
                 Some(format!("{module_signature}::TRAIT({name})"))
+            }
+            Definition::TraitAlias(trait_alias) => {
+                let name = trait_alias.name(db).to_smol_str();
+                let module_signature =
+                    self.get_signature(db, Definition::Module(trait_alias.module(db)))?;
+                Some(format!("{module_signature}::TRAIT_ALIAS({name})"))
             }
             Definition::TypeAlias(talias) => {
                 let name = talias.name(db).to_smol_str();
@@ -647,7 +682,7 @@ impl<'a> UnitAnalyzer<'a> {
                 DefWithBody::Static(s) => self.get_signature(db, Definition::Static(s)),
                 DefWithBody::Const(c) => self.get_signature(db, Definition::Const(c)),
                 DefWithBody::Variant(v) => self.get_signature(db, Definition::Variant(v)),
-                DefWithBody::InTypeConst(_) => todo!(),
+                _ => None,
             },
             Definition::Local(local) => match local.parent(db) {
                 DefWithBody::Function(f) => self.get_signature(db, Definition::Function(f)),
@@ -661,6 +696,12 @@ impl<'a> UnitAnalyzer<'a> {
             }
             Definition::Static(static_) => {
                 self.get_signature(db, Definition::Module(static_.module(db)))
+            }
+            Definition::Trait(trait_) => {
+                self.get_signature(db, Definition::Module(trait_.module(db)))
+            }
+            Definition::TraitAlias(trait_alias) => {
+                self.get_signature(db, Definition::Module(trait_alias.module(db)))
             }
             Definition::TypeAlias(talias) => {
                 if let Some(assoc_item) = talias.as_assoc_item(db) {
@@ -681,9 +722,6 @@ impl<'a> UnitAnalyzer<'a> {
                 } else {
                     self.get_signature(db, Definition::Module(talias.module(db)))
                 }
-            }
-            Definition::Trait(trait_) => {
-                self.get_signature(db, Definition::Module(trait_.module(db)))
             }
             Definition::Variant(variant) => {
                 self.get_signature(db, Definition::Adt(Adt::Enum(variant.parent_enum(db))))
@@ -733,7 +771,6 @@ impl<'a> UnitAnalyzer<'a> {
             &def,
             Definition::BuiltinType(_)
                 | Definition::SelfType(_)
-                | Definition::GenericParam(_)
                 | Definition::DeriveHelper(_)
                 | Definition::BuiltinAttr(_)
                 | Definition::ToolModule(_)
@@ -808,6 +845,9 @@ impl<'a> UnitAnalyzer<'a> {
                         facts.push(("/kythe/complete", b"incomplete"));
                     }
                 }
+                Definition::GenericParam(_) => {
+                    facts.push(("/kythe/node/kind", b"tvar"));
+                }
                 Definition::Label(_) => {
                     facts.push(("/kythe/node/kind", b"variable"));
                     facts.push(("/kythe/complete", b"definition"));
@@ -829,11 +869,11 @@ impl<'a> UnitAnalyzer<'a> {
                     }
                     facts.push(("/kythe/subkind", b"static"));
                 }
-                Definition::TypeAlias(_) => {
-                    facts.push(("/kythe/node/kind", b"talias"));
-                }
                 Definition::Trait(_) => {
                     facts.push(("/kythe/node/kind", b"interface"));
+                }
+                Definition::TraitAlias(_) | Definition::TypeAlias(_) => {
+                    facts.push(("/kythe/node/kind", b"talias"));
                 }
                 Definition::Variant(variant) => {
                     match variant.kind(db) {
@@ -872,6 +912,9 @@ impl<'a> UnitAnalyzer<'a> {
                 Definition::Macro(macro_) => docs_with_rangemap(db, &macro_.attrs(db)),
                 Definition::Static(static_) => docs_with_rangemap(db, &static_.attrs(db)),
                 Definition::Trait(trait_) => docs_with_rangemap(db, &trait_.attrs(db)),
+                Definition::TraitAlias(trait_alias) => {
+                    docs_with_rangemap(db, &trait_alias.attrs(db))
+                }
                 Definition::TypeAlias(talias) => docs_with_rangemap(db, &talias.attrs(db)),
                 Definition::Variant(variant) => docs_with_rangemap(db, &variant.attrs(db)),
                 _ => None,
@@ -918,9 +961,103 @@ impl<'a> UnitAnalyzer<'a> {
                                 "/kythe/loc/end",
                                 range_end.to_string().into_bytes().to_vec(),
                             )?;
-                            self.emitter.emit_edge(&ref_anchor, &ref_vname, "/kythe/edge/ref")?;
+                            self.emitter.emit_edge(
+                                &ref_anchor,
+                                &ref_vname,
+                                "/kythe/edge/ref/doc",
+                            )?;
                         }
                     }
+                }
+            }
+
+            // Emit tparam edges if there are any
+            let generic_params_opt = match def {
+                Definition::Adt(adt) => Some(GenericDef::from(adt).params(db)),
+                Definition::Const(const_) => Some(GenericDef::from(const_).params(db)),
+                Definition::Function(function) => Some(GenericDef::from(function).params(db)),
+                Definition::Trait(trait_) => Some(GenericDef::from(trait_).params(db)),
+                Definition::TraitAlias(trait_alias) => {
+                    Some(GenericDef::from(trait_alias).params(db))
+                }
+                Definition::TypeAlias(talias) => Some(GenericDef::from(talias).params(db)),
+                Definition::Variant(variant) => Some(GenericDef::from(variant).params(db)),
+                _ => None,
+            };
+            if let Some(generic_params) = generic_params_opt {
+                let mut index = 0;
+                for param in generic_params.into_iter() {
+                    // Skip implicit type params
+                    if let GenericParam::TypeParam(type_param) = &param {
+                        if type_param.is_implicit(db) {
+                            continue;
+                        }
+                    }
+
+                    // Generate VName for GenericParam
+                    let mut tparam_vname = self.gen_base_vname();
+                    let tparam_signature_opt =
+                        self.get_signature(db, Definition::GenericParam(param));
+                    if tparam_signature_opt.is_none() {
+                        index += 1;
+                        continue;
+                    }
+                    let tparam_signature = tparam_signature_opt.unwrap();
+                    tparam_vname.set_signature(tparam_signature);
+
+                    // Emit the tparam edge
+                    let edge_kind = format!("/kythe/edge/tparam.{index}");
+                    self.emitter.emit_edge(&def_vname, &tparam_vname, &edge_kind)?;
+                    index += 1;
+                }
+            }
+
+            // Emit param edges if this is a function
+            if let Definition::Function(function) = &def {
+                let mut index = 0;
+                // I hate this code but it's necessary. You can only get the self param through
+                // .self_param(). Then, you have to manually get the definition located at the
+                // last token of the node (which should be the actual "self" token) because
+                // there isn't a helper function to convert the SelfParam to a local. And of
+                // course most of these functions return Options and we don't want this to crash
+                // the indexer so we end up with 4 nested if statements.
+                if let Some(self_param) = function.self_param(db) {
+                    if let Some(source) = self_param.source(db) {
+                        let self_token = source.value.syntax().last_token().unwrap();
+                        let local_def = IdentClass::classify_token(semantics, &self_token)
+                            .map(IdentClass::definitions_no_ops);
+                        if let Some(&[local_def]) = local_def.as_deref() {
+                            let mut param_vname = self.gen_base_vname();
+                            if let Some(param_signature) = self.get_signature(db, local_def) {
+                                param_vname.set_signature(param_signature);
+                                let edge_kind = format!("/kythe/edge/param.{index}");
+                                self.emitter.emit_edge(&def_vname, &param_vname, &edge_kind)?;
+                                index += 1;
+                            }
+                        } else {
+                            // TODO: Might want to emit a diagnostic node that
+                            // we couldn't find a
+                            // Definition::Local for the self param
+                        }
+                    }
+                }
+                for param in function.params_without_self(db) {
+                    // Try to convert the param to a local and create the VName
+                    let local = param.as_local(db);
+                    if local.is_none() {
+                        continue;
+                    }
+                    let mut param_vname = self.gen_base_vname();
+                    let param_signature = self.get_signature(db, Definition::Local(local.unwrap()));
+                    if param_signature.is_none() {
+                        continue;
+                    }
+                    param_vname.set_signature(param_signature.unwrap());
+
+                    // Emit the param edge
+                    let edge_kind = format!("/kythe/edge/param.{index}");
+                    self.emitter.emit_edge(&def_vname, &param_vname, &edge_kind)?;
+                    index += 1;
                 }
             }
 
@@ -983,9 +1120,33 @@ impl<'a> UnitAnalyzer<'a> {
         ))
     }
 
+    fn marked_source_identifier(
+        &mut self,
+        def: Definition,
+        db: &RootDatabase,
+    ) -> Option<MarkedSource> {
+        // Set the name on the identifier
+        let name = def.name(db)?;
+        let mut identifier = MarkedSource::new();
+        identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
+        identifier.set_pre_text(name.to_smol_str().to_string());
+
+        // Set the link on the identifier
+        let mut vname = self.gen_base_vname();
+        vname.set_signature(self.get_signature(db, def)?);
+        let mut link = Link::new();
+        link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
+        identifier.set_link(RepeatedField::from_vec(vec![link]));
+
+        Some(identifier)
+    }
+
     fn gen_marked_source(&mut self, def: Definition, db: &RootDatabase) -> Option<Vec<u8>> {
         let ms_children: Vec<MarkedSource> = match &def {
-            Definition::Adt(adt) => {
+            Definition::Adt(_)
+            | Definition::Trait(_)
+            | Definition::TraitAlias(_)
+            | Definition::TypeAlias(_) => {
                 let mut children = vec![];
 
                 // Add pub modifier if this is public
@@ -993,62 +1154,330 @@ impl<'a> UnitAnalyzer<'a> {
                     if visibility == Visibility::Public {
                         let mut public_modifier = MarkedSource::new();
                         public_modifier.set_kind(MarkedSource_Kind::MODIFIER);
-                        public_modifier.set_pre_text("pub".into());
-                        public_modifier.set_post_text(" ".into());
+                        public_modifier.set_pre_text("pub ".into());
                         children.push(public_modifier);
                     }
                 }
 
-                // Add ADT type as a modifier
-                let mut adt_modifier = MarkedSource::new();
-                let adt_type = match &adt {
-                    Adt::Enum(_) => "enum",
-                    Adt::Struct(_) => "struct",
-                    Adt::Union(_) => "union",
+                // Add ADT type or "trait" as a modifier
+                let mut modifier = MarkedSource::new();
+                let modifier_type = match &def {
+                    Definition::Adt(adt) => match &adt {
+                        Adt::Enum(_) => "enum",
+                        Adt::Struct(_) => "struct",
+                        Adt::Union(_) => "union",
+                    },
+                    Definition::Trait(_) | Definition::TraitAlias(_) => "trait",
+                    Definition::TypeAlias(_) => "type",
+                    _ => unreachable!(),
                 };
-                adt_modifier.set_kind(MarkedSource_Kind::MODIFIER);
-                adt_modifier.set_pre_text(adt_type.into());
-                adt_modifier.set_post_text(" ".into());
-                children.push(adt_modifier);
+                modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                modifier.set_pre_text(modifier_type.into());
+                modifier.set_post_text(" ".into());
+                children.push(modifier);
 
-                // Add identifier and set link
-                let mut identifier = MarkedSource::new();
-                identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
-                identifier.set_pre_text(adt.name(db).to_smol_str().to_string());
-                let mut vname = self.gen_base_vname();
-                vname.set_signature(self.get_signature(db, def)?);
-                let mut link = Link::new();
-                link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
-                identifier.set_link(RepeatedField::from_vec(vec![link]));
+                // Add identifier
+                let identifier = self.marked_source_identifier(def, db)?;
                 children.push(identifier);
+
+                // Add type parameters if any are present
+                let generic_params = match &def {
+                    Definition::Adt(adt) => GenericDef::from(*adt),
+                    Definition::Trait(trait_) => GenericDef::from(*trait_),
+                    Definition::TraitAlias(trait_alias) => GenericDef::from(*trait_alias),
+                    Definition::TypeAlias(type_alias) => GenericDef::from(*type_alias),
+                    _ => unreachable!(),
+                }
+                .params(db);
+
+                if !generic_params.is_empty() {
+                    let mut has_non_implicit_params = false;
+                    for param in generic_params.into_iter() {
+                        if let GenericParam::TypeParam(tparam) = param {
+                            if tparam.is_implicit(db) {
+                                continue;
+                            }
+                        }
+                        has_non_implicit_params = true;
+                        break;
+                    }
+
+                    if has_non_implicit_params {
+                        let mut tparam_ms = MarkedSource::new();
+                        tparam_ms.set_kind(MarkedSource_Kind::PARAMETER_LOOKUP_BY_TPARAM);
+                        tparam_ms.set_pre_text("<".into());
+                        tparam_ms.set_post_text(">".into());
+                        tparam_ms.set_post_child_text(", ".into());
+                        children.push(tparam_ms);
+                    }
+                }
 
                 Some(children)
             }
-            Definition::Local(local) => {
+            Definition::Const(_) | Definition::Static(_) => {
+                let mut children = vec![];
+
+                // Add pub modifier if this is public
+                if let Some(visibility) = def.visibility(db) {
+                    if visibility == Visibility::Public {
+                        let mut public_modifier = MarkedSource::new();
+                        public_modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                        public_modifier.set_pre_text("pub ".into());
+                        children.push(public_modifier);
+                    }
+                }
+
+                // Add const/static modifier
+                let mut modifier = MarkedSource::new();
+                let modifier_type = match &def {
+                    Definition::Const(_) => "const",
+                    Definition::Static(_) => "static",
+                    _ => unreachable!(),
+                };
+                modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                modifier.set_pre_text(modifier_type.into());
+                modifier.set_post_text(" ".into());
+                children.push(modifier);
+
+                // Add identifier and type
                 let mut ms = MarkedSource::new();
                 ms.set_kind(MarkedSource_Kind::BOX);
                 ms.set_post_child_text(": ".into());
+                let identifier = self.marked_source_identifier(def, db)?;
+                let ty = match &def {
+                    Definition::Const(konst) => konst.ty(db),
+                    Definition::Static(statik) => statik.ty(db),
+                    _ => unreachable!(),
+                };
+                let mut type_ms = MarkedSource::new();
+                type_ms.set_kind(MarkedSource_Kind::TYPE);
+                type_ms.set_pre_text(format!("{}", ty.display(db)));
+                ms.set_child(RepeatedField::from_vec(vec![identifier, type_ms]));
+                children.push(ms);
+
+                // Add initializer if possible
+                let value_opt = match &def {
+                    Definition::Const(konst) => konst.value(db),
+                    Definition::Static(statik) => statik.value(db),
+                    _ => unreachable!(),
+                };
+                if let Some(value) = value_opt {
+                    let mut initializer = MarkedSource::new();
+                    initializer.set_kind(MarkedSource_Kind::INITIALIZER);
+                    initializer.set_pre_text(format!("{value}"));
+                    children.push(initializer);
+                }
+
+                Some(children)
+            }
+            Definition::Field(field) => {
                 let mut children = vec![];
 
-                // Add identifier and set link
-                let mut identifier = MarkedSource::new();
-                identifier.set_kind(MarkedSource_Kind::IDENTIFIER);
-                identifier.set_pre_text(local.name(db).to_smol_str().to_string());
-                let mut vname = self.gen_base_vname();
-                vname.set_signature(self.get_signature(db, def)?);
-                let mut link = Link::new();
-                link.set_definition(RepeatedField::from_vec(vec![vname_to_kythe_uri(&vname)]));
-                identifier.set_link(RepeatedField::from_vec(vec![link]));
+                // Add pub modifier if this is public
+                if let Some(visibility) = def.visibility(db) {
+                    if visibility == Visibility::Public {
+                        let mut public_modifier = MarkedSource::new();
+                        public_modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                        public_modifier.set_pre_text("pub ".into());
+                        children.push(public_modifier);
+                    }
+                }
+
+                // Add identifier
+                let identifier = self.marked_source_identifier(def, db)?;
                 children.push(identifier);
 
                 // Add type
                 let mut type_ms = MarkedSource::new();
                 type_ms.set_kind(MarkedSource_Kind::TYPE);
-                type_ms.set_pre_text(format!("{}", local.ty(db).display(db)));
+                type_ms.set_pre_text(": ".into());
+                type_ms.set_post_text(format!("{}", field.ty(db).display(db)));
                 children.push(type_ms);
 
-                ms.set_child(RepeatedField::from_vec(children));
-                Some(vec![ms])
+                Some(children)
+            }
+            Definition::Function(function) => {
+                let mut children = vec![];
+
+                // Create the modifier, including certain prefixes as necessary
+                let mut modifier = String::new();
+                if let Some(visibility) = def.visibility(db) {
+                    if visibility == Visibility::Public {
+                        modifier = format!("{modifier}pub ");
+                    }
+                }
+                if function.is_const(db) {
+                    modifier = format!("{modifier}const ");
+                }
+                if function.is_async(db) {
+                    modifier = format!("{modifier}async ");
+                }
+                if function.is_unsafe_to_call(db) {
+                    modifier = format!("{modifier}unsafe ");
+                }
+                modifier = format!("{modifier}fn ");
+                let mut modifier_ms = MarkedSource::new();
+                modifier_ms.set_kind(MarkedSource_Kind::MODIFIER);
+                modifier_ms.set_pre_text(modifier);
+                children.push(modifier_ms);
+
+                // Add the identifier
+                let identifier = self.marked_source_identifier(def, db)?;
+                children.push(identifier);
+
+                // Add the generic params if present
+                let generic_def = GenericDef::from(*function);
+                let generic_params = generic_def.params(db);
+                if !generic_params.is_empty() {
+                    let mut has_non_implicit_params = false;
+                    for param in generic_params.into_iter() {
+                        if let GenericParam::TypeParam(tparam) = param {
+                            if tparam.is_implicit(db) {
+                                continue;
+                            }
+                        }
+                        has_non_implicit_params = true;
+                        break;
+                    }
+
+                    if has_non_implicit_params {
+                        let mut tparam_ms = MarkedSource::new();
+                        tparam_ms.set_kind(MarkedSource_Kind::PARAMETER_LOOKUP_BY_TPARAM);
+                        tparam_ms.set_pre_text("<".into());
+                        tparam_ms.set_post_text(">".into());
+                        tparam_ms.set_post_child_text(", ".into());
+                        children.push(tparam_ms);
+                    }
+                }
+
+                // Add regular params if present
+                let mut param_ms = MarkedSource::new();
+                param_ms.set_kind(MarkedSource_Kind::PARAMETER);
+                param_ms.set_pre_text("(".into());
+                param_ms.set_post_text(")".into());
+                if function.num_params(db) > 0 {
+                    param_ms.set_kind(MarkedSource_Kind::PARAMETER_LOOKUP_BY_PARAM);
+                    param_ms.set_post_child_text(", ".into());
+                }
+                children.push(param_ms);
+
+                // Add the return type if it isn't the unit type
+                let return_type = if let Some(ty) = function.async_ret_type(db) {
+                    ty
+                } else {
+                    function.ret_type(db)
+                };
+                if !return_type.is_unit() {
+                    let mut arrow_ms = MarkedSource::new();
+                    arrow_ms.set_kind(MarkedSource_Kind::MODIFIER);
+                    arrow_ms.set_pre_text(" -> ".into());
+                    children.push(arrow_ms);
+
+                    let mut type_ms = MarkedSource::new();
+                    type_ms.set_kind(MarkedSource_Kind::TYPE);
+                    type_ms.set_pre_text(format!("{}", return_type.display(db)));
+                    children.push(type_ms);
+                }
+
+                Some(children)
+            }
+            Definition::GenericParam(param) => {
+                let mut children = vec![];
+                if let GenericParam::ConstParam(cparam) = param {
+                    // Add const modifier
+                    let mut modifier = MarkedSource::new();
+                    modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                    modifier.set_pre_text("const ".into());
+                    children.push(modifier);
+
+                    // Add box with identifier and type
+                    let mut ms_box = MarkedSource::new();
+                    ms_box.set_kind(MarkedSource_Kind::BOX);
+                    let identifier = self.marked_source_identifier(def, db)?;
+                    let mut type_ms = MarkedSource::new();
+                    type_ms.set_kind(MarkedSource_Kind::TYPE);
+                    type_ms.set_pre_text(format!(": {}", cparam.ty(db).display(db)));
+                    ms_box.set_child(RepeatedField::from_vec(vec![identifier, type_ms]));
+                    children.push(ms_box);
+                } else {
+                    children.push(self.marked_source_identifier(def, db)?);
+                }
+                Some(children)
+            }
+            Definition::Local(local) => {
+                let mut children = vec![];
+                if let Some(self_param) = local.as_self_param(db) {
+                    let modifier = match self_param.access(db) {
+                        Access::Shared => "&",
+                        Access::Exclusive => "&mut ",
+                        Access::Owned => "",
+                    };
+                    if !modifier.is_empty() {
+                        let mut mod_ms = MarkedSource::new();
+                        mod_ms.set_kind(MarkedSource_Kind::MODIFIER);
+                        mod_ms.set_pre_text(modifier.into());
+                        children.push(mod_ms);
+                    }
+
+                    let identifier = self.marked_source_identifier(def, db)?;
+                    children.push(identifier);
+                } else {
+                    // Add mut modifier is the local is mutable
+                    if local.is_mut(db) {
+                        let mut mod_ms = MarkedSource::new();
+                        mod_ms.set_kind(MarkedSource_Kind::MODIFIER);
+                        mod_ms.set_pre_text("mut ".into());
+                        children.push(mod_ms);
+                    }
+
+                    // Create box
+                    let mut box_ms = MarkedSource::new();
+                    box_ms.set_kind(MarkedSource_Kind::BOX);
+                    box_ms.set_post_child_text(": ".into());
+
+                    // Add identifier
+                    let identifier = self.marked_source_identifier(def, db)?;
+
+                    // Add type
+                    let mut type_ms = MarkedSource::new();
+                    type_ms.set_kind(MarkedSource_Kind::TYPE);
+                    type_ms.set_pre_text(format!("{}", local.ty(db).display(db)));
+
+                    box_ms.set_child(RepeatedField::from_vec(vec![identifier, type_ms]));
+                    children.push(box_ms);
+                }
+                Some(children)
+            }
+            Definition::Macro(macro_) => {
+                if macro_.kind(db) == MacroKind::Declarative {
+                    let mut modifier = MarkedSource::new();
+                    modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                    modifier.set_pre_text("macro_rules! ".into());
+                    Some(vec![modifier, self.marked_source_identifier(def, db)?])
+                } else {
+                    None
+                }
+            }
+            Definition::Module(_) => {
+                let mut children = vec![];
+
+                // Add pub modifier if this is public
+                if let Some(visibility) = def.visibility(db) {
+                    if visibility == Visibility::Public {
+                        let mut public_modifier = MarkedSource::new();
+                        public_modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                        public_modifier.set_pre_text("pub ".into());
+                        children.push(public_modifier);
+                    }
+                }
+
+                let mut modifier = MarkedSource::new();
+                modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                modifier.set_pre_text("mod ".into());
+                children.push(modifier);
+
+                children.push(self.marked_source_identifier(def, db)?);
+                Some(children)
             }
             _ => None,
         }?;
@@ -1129,6 +1558,32 @@ fn get_definition_range(
                 source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
+        Definition::GenericParam(param) => match param {
+            GenericParam::ConstParam(cparam) => {
+                let source = semantics.source(cparam.merge())?;
+                let def_file_id = source.file_id.original_file(db);
+                let name_node =
+                    source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+                Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+            }
+            GenericParam::LifetimeParam(lparam) => {
+                let source = semantics.source(lparam)?;
+                let def_file_id = source.file_id.original_file(db);
+                let name_node = source
+                    .value
+                    .syntax()
+                    .children()
+                    .find(|it| it.kind() == SyntaxKind::LIFETIME)?;
+                Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+            }
+            GenericParam::TypeParam(tparam) => {
+                let source = semantics.source(tparam.merge())?;
+                let def_file_id = source.file_id.original_file(db);
+                let name_node =
+                    source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+                Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+            }
+        },
         Definition::Label(label) => {
             let source = label.source(db);
             let def_file_id = source.file_id.original_file(db);
@@ -1172,15 +1627,22 @@ fn get_definition_range(
                 source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
-        Definition::TypeAlias(talias) => {
-            let source = semantics.source(talias)?;
+        Definition::Trait(trait_) => {
+            let source = semantics.source(trait_)?;
             let def_file_id = source.file_id.original_file(db);
             let name_node =
                 source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
             Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
         }
-        Definition::Trait(trait_) => {
-            let source = semantics.source(trait_)?;
+        Definition::TraitAlias(trait_alias) => {
+            let source = semantics.source(trait_alias)?;
+            let def_file_id = source.file_id.original_file(db);
+            let name_node =
+                source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;
+            Some(FileRange { file_id: def_file_id.0, text_range: name_node.text_range() })
+        }
+        Definition::TypeAlias(talias) => {
+            let source = semantics.source(talias)?;
             let def_file_id = source.file_id.original_file(db);
             let name_node =
                 source.value.syntax().children().find(|it| it.kind() == SyntaxKind::NAME)?;

@@ -129,18 +129,6 @@ def _rust_entries_impl(ctx):
     iargs = [indexer.path]
     output = ctx.outputs.entries
 
-    # TODO(Arm1stice): Pass arguments to indexer based on rule attributes
-    # # If the test wants marked source, enable support for it in the indexer.
-    # if ctx.attr.has_marked_source:
-    #     iargs.append("-code")
-
-    # if ctx.attr.emit_anchor_scopes:
-    #     iargs.append("-anchor_scopes")
-
-    # # If the test wants linkage metadata, enable support for it in the indexer.
-    # if ctx.attr.metadata_suffix:
-    #     iargs += ["-meta", ctx.attr.metadata_suffix]
-
     iargs += [kzip.path, "| gzip >" + output.path]
 
     cmds = ["set -e", "set -o pipefail", " ".join(iargs), ""]
@@ -157,12 +145,6 @@ def _rust_entries_impl(ctx):
 rust_entries = rule(
     _rust_entries_impl,
     attrs = {
-        # Whether to enable explosion of MarkedSource facts.
-        "has_marked_source": attr.bool(default = False),
-
-        # Whether to enable anchor scope edges.
-        "emit_anchor_scopes": attr.bool(default = False),
-
         # The kzip to pass to the Rust indexer
         "kzip": attr.label(
             providers = ["kzip"],
@@ -182,9 +164,7 @@ rust_entries = rule(
 def _rust_indexer(
         name,
         srcs,
-        out_dir_files = [],
-        has_marked_source = False,
-        emit_anchor_scopes = False):
+        out_dir_files = []):
     kzip = name + "_units"
     rust_extract(
         name = kzip,
@@ -194,8 +174,6 @@ def _rust_indexer(
     entries = name + "_entries"
     rust_entries(
         name = entries,
-        has_marked_source = has_marked_source,
-        emit_anchor_scopes = emit_anchor_scopes,
         kzip = ":" + kzip,
     )
     return entries
@@ -209,7 +187,7 @@ def rust_indexer_test(
         tags = None,
         log_entries = False,
         has_marked_source = False,
-        emit_anchor_scopes = False,
+        resolve_code_facts = False,
         allow_duplicates = False):
     """
     Runs a Rust verifier test on the source files
@@ -221,8 +199,8 @@ def rust_indexer_test(
       size: The size to pass to the verifier_test macro
       tags: The tags to pass to the verifier_test macro
       log_entries: Enable to make the verifier log all indexer entries
-      has_marked_source: Enable to make the indexer emit Marked Source (unused)
-      emit_anchor_scopes: Enable to make the indexer emit anchor scopes (unused)
+      has_marked_source: Enable if the test uses Marked Source
+      resolve_code_facts: Enable to resolve Marked Source nodes
       allow_duplicates: Enable to make the verifier ignore duplicate entries
     """
 
@@ -231,8 +209,6 @@ def rust_indexer_test(
         name = name,
         srcs = srcs,
         out_dir_files = out_dir_files,
-        has_marked_source = has_marked_source,
-        emit_anchor_scopes = emit_anchor_scopes,
     )
 
     opts = ["--use_file_nodes", "--show_goals", "--check_for_singletons"]
@@ -247,5 +223,6 @@ def rust_indexer_test(
         size = size,
         opts = opts,
         tags = tags,
+        resolve_code_facts = resolve_code_facts,
         deps = [":" + entries],
     )

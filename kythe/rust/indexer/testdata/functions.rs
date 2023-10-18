@@ -120,3 +120,25 @@ fn main() {
 fn hello() {
     println!("Hello from the module!");
 }
+
+//- @function_with_params defines/binding FuncWithParams
+//- @x defines/binding ParamX
+//- @y defines/binding ParamY
+//- FuncWithParams param.0 ParamX
+//- FuncWithParams param.1 ParamY
+fn function_with_params(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+impl Struct {
+    //- @method_with_params defines/binding MethodWithParams
+    //- @self defines/binding ParamSelf
+    //- @u defines/binding ParamU
+    //- @v defines/binding ParamV
+    //- MethodWithParams param.0 ParamSelf
+    //- MethodWithParams param.1 ParamU
+    //- MethodWithParams param.2 ParamV
+    fn method_with_params(&self, u: i32, v: i32) -> i32 {
+        u + v
+    }
+}
