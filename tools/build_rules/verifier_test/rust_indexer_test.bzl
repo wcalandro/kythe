@@ -128,6 +128,14 @@ def _rust_entries_impl(ctx):
     indexer = ctx.executable._indexer
     iargs = [indexer.path]
     output = ctx.outputs.entries
+    inputs = [kzip]
+
+    if ctx.attr.include_sysroot:
+        rust_analyzer_toolchain = ctx.toolchains[Label("@rules_rust//rust/rust_analyzer:toolchain_type")]
+        sysroot = rust_analyzer_toolchain.rustc_srcs.label.workspace_root
+        sysroot_src = sysroot + "/" + rust_analyzer_toolchain.rustc_srcs.label.package + "/library"
+        iargs += ["--sysroot={}".format(sysroot), "--sysroot_src={}".format(sysroot_src)]
+        inputs += rust_analyzer_toolchain.rustc_srcs.files.to_list()
 
     iargs += [kzip.path, "| gzip >" + output.path]
 
@@ -136,7 +144,7 @@ def _rust_entries_impl(ctx):
         mnemonic = "RustIndexer",
         command = "\n".join(cmds),
         outputs = [output],
-        inputs = [kzip],
+        inputs = inputs,
         tools = [indexer],
     )
     return [KytheEntries(compressed = depset([output]), files = depset())]
@@ -150,7 +158,10 @@ rust_entries = rule(
             providers = ["kzip"],
             mandatory = True,
         ),
-
+        # Whether to pass the Rust sysroot to the indexer
+        "include_sysroot": attr.bool(
+            default = False,
+        ),
         # The location of the Rust indexer binary.
         "_indexer": attr.label(
             default = Label("//kythe/rust/indexer:bazel_indexer"),
@@ -159,12 +170,14 @@ rust_entries = rule(
         ),
     },
     outputs = {"entries": "%{name}.entries.gz"},
+    toolchains = [str(Label("@rules_rust//rust/rust_analyzer:toolchain_type"))],
 )
 
 def _rust_indexer(
         name,
         srcs,
-        out_dir_files = []):
+        out_dir_files = [],
+        include_sysroot = False):
     kzip = name + "_units"
     rust_extract(
         name = kzip,
@@ -175,6 +188,7 @@ def _rust_indexer(
     rust_entries(
         name = entries,
         kzip = ":" + kzip,
+        include_sysroot = include_sysroot,
     )
     return entries
 
@@ -188,7 +202,8 @@ def rust_indexer_test(
         log_entries = False,
         has_marked_source = False,
         resolve_code_facts = False,
-        allow_duplicates = False):
+        allow_duplicates = False,
+        include_sysroot = False):
     """
     Runs a Rust verifier test on the source files
 
@@ -202,6 +217,7 @@ def rust_indexer_test(
       has_marked_source: Enable if the test uses Marked Source
       resolve_code_facts: Enable to resolve Marked Source nodes
       allow_duplicates: Enable to make the verifier ignore duplicate entries
+      include_sysroot: Whether to pass the sysroot and sysroot_src to the indexer
     """
 
     # Generate entries using the Rust indexer
@@ -209,6 +225,7 @@ def rust_indexer_test(
         name = name,
         srcs = srcs,
         out_dir_files = out_dir_files,
+        include_sysroot = include_sysroot,
     )
 
     opts = ["--use_file_nodes", "--show_goals", "--check_for_singletons"]

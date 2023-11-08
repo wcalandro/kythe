@@ -15,13 +15,31 @@ use kythe_rust_indexer::{indexer::KytheIndexer, providers::*, proxyrequests, wri
 
 use analysis_rust_proto::*;
 use anyhow::{anyhow, Context, Result};
+use clap::Parser;
 use serde_json::Value;
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
+
+#[derive(Parser)]
+#[clap(author = "The Kythe Authors")]
+#[clap(about = "Kythe Rust Proxy Indexer", long_about = None)]
+#[clap(rename_all = "snake_case")]
+struct App {
+    /// The path to the Rust sysroot
+    #[clap(long, value_parser)]
+    sysroot: Option<PathBuf>,
+    /// The path to the Rust sysroot source files
+    #[clap(long, value_parser)]
+    sysroot_src: Option<PathBuf>,
+}
 
 fn main() -> Result<()> {
+    let args = App::parse();
     let mut file_provider = ProxyFileProvider::new();
     let mut kythe_writer = ProxyWriter::default();
-    let mut indexer = KytheIndexer::new(&mut kythe_writer);
+    let mut indexer = KytheIndexer::new(&mut kythe_writer, args.sysroot, args.sysroot_src);
 
     // Request and process
     loop {

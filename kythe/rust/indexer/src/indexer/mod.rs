@@ -17,22 +17,61 @@ mod docs;
 pub mod entries;
 mod kytheuri;
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use crate::error::KytheError;
 use crate::providers::FileProvider;
 use crate::writer::KytheWriter;
 
 use analysis_rust_proto::*;
 use analyzer::UnitAnalyzer;
+use glob::glob;
+use path_absolutize::*;
+use ra_ap_paths::AbsPathBuf;
 
 /// A data structure for indexing CompilationUnits
 pub struct KytheIndexer<'a> {
     writer: &'a mut dyn KytheWriter,
+    sysroot: Option<String>,
+    sysroot_src: Option<String>,
+    sysroot_src_files: Option<HashMap<AbsPathBuf, String>>,
 }
 
 impl<'a> KytheIndexer<'a> {
     /// Create a new instance of the KytheIndexer
-    pub fn new(writer: &'a mut dyn KytheWriter) -> Self {
-        Self { writer }
+    pub fn new(
+        writer: &'a mut dyn KytheWriter,
+        sysroot: Option<PathBuf>,
+        sysroot_src: Option<PathBuf>,
+    ) -> Self {
+        // Absolutize sysroot paths and load all sysroot_src_files
+        let sysroot_absolute =
+            sysroot.map(|s| s.absolutize().unwrap().to_str().unwrap().to_string());
+        let sysroot_src_absolute =
+            sysroot_src.map(|s| s.absolutize().unwrap().to_str().unwrap().to_string());
+        let sysroot_src_files = if let Some(path) = &sysroot_src_absolute {
+            let mut map = HashMap::new();
+            for entry in glob(&format!("{path}/**/*.rs")).expect("Failed to read glob pattern") {
+                match entry {
+                    Ok(path) => {
+                        if let Ok(contents) = std::fs::read_to_string(&path) {
+                            map.insert(AbsPathBuf::assert(path), contents);
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+            Some(map)
+        } else {
+            None
+        };
+        Self {
+            writer,
+            sysroot: sysroot_absolute,
+            sysroot_src: sysroot_src_absolute,
+            sysroot_src_files,
+        }
     }
 
     /// Accepts a CompilationUnit and the directory for analysis files and
@@ -42,7 +81,14 @@ impl<'a> KytheIndexer<'a> {
         unit: &CompilationUnit,
         provider: &mut dyn FileProvider,
     ) -> Result<(), KytheError> {
-        let mut generator = UnitAnalyzer::new(unit, self.writer, provider)?;
+        let mut generator = UnitAnalyzer::new(
+            unit,
+            self.writer,
+            provider,
+            self.sysroot.clone(),
+            self.sysroot_src.clone(),
+            self.sysroot_src_files.clone(),
+        )?;
 
         generator.handle_files()?;
         generator.index_crate()?;

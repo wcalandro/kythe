@@ -69,7 +69,11 @@ pub union PubUnion {}
 
 //- @Enum defines/binding Enum
 //- Enum.code/rendered/signature "enum Enum"
-enum Enum {}
+enum Enum {
+    //- @Variant defines/binding Variant
+    //- Variant.code/rendered/signature "Enum::Variant"
+    Variant,
+}
 
 //- @PubEnum defines/binding PubEnum
 //- PubEnum.code/rendered/signature "pub enum PubEnum<'a, T, const U: usize>"
@@ -135,10 +139,16 @@ fn fn5<T>(x: T) -> T {
     x
 }
 
+//- @fn6 defines/binding Fn6
+//- Fn6.code/rendered/signature "async fn fn6() -> i32"
+async fn fn6() -> i32 {
+    1
+}
+
 /// LOCALS
 
-fn fn6() {
+fn fn7() {
     //- @x defines/binding LocalX
-    //- LocalX.code/rendered/signature "mut x: i32"
-    let mut x = 1i32;
+    //- LocalX.code/rendered/signature "mut x: Vec<i32, Global>"
+    let mut x: Vec<i32> = vec![1];
 }

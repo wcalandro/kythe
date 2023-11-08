@@ -25,16 +25,18 @@ use common_rust_proto::{Link, MarkedSource, MarkedSource_Kind};
 use protobuf::{Message, RepeatedField};
 use ra_ap_hir::{
     Access, Adt, AsAssocItem, AssocItemContainer, Crate, DefWithBody, FieldSource, GenericDef,
-    GenericParam, HasAttrs, HasSource, HirDisplay, InFile, MacroKind, Module, ModuleSource,
+    GenericParam, HasAttrs, HasSource, HirDisplay, InFile, Local, MacroKind, Module, ModuleSource,
     Semantics, StructKind, VariantDef,
 };
+use ra_ap_hir_def::db::DefDatabase;
 use ra_ap_hir_def::visibility::Visibility;
+use ra_ap_hir_def::DefWithBodyId;
 use ra_ap_ide::{AnalysisHost, Change, FileId, RootDatabase};
-use ra_ap_ide_db::defs::{Definition, IdentClass};
+use ra_ap_ide_db::defs::Definition;
 use ra_ap_ide_db::documentation::docs_with_rangemap;
 use ra_ap_ide_db::helpers::get_definition;
 use ra_ap_load_cargo::ProjectFolders;
-use ra_ap_paths::AbsPath;
+use ra_ap_paths::{AbsPath, AbsPathBuf};
 use ra_ap_project_model::{ProjectJson, ProjectJsonData, ProjectWorkspace};
 use ra_ap_syntax::{
     ast::{AstNode, HasName},
@@ -42,6 +44,7 @@ use ra_ap_syntax::{
 };
 use ra_ap_vfs::{Vfs, VfsPath};
 use rustc_hash::FxHashMap;
+use serde_json::Value;
 use storage_rust_proto::*;
 use triomphe::Arc;
 
@@ -73,6 +76,12 @@ pub struct UnitAnalyzer<'a> {
     file_id_to_vname: HashMap<u32, VName>,
     /// A map between rust-analyzer Definition and Kythe VName signature
     def_to_signature: HashMap<Definition, String>,
+    /// An optional string path to the Rust sysroot
+    sysroot: Option<String>,
+    /// An optional string path to the Rust sysroot source files
+    sysroot_src: Option<String>,
+    /// An optional map of sysroot source file paths to their string contents
+    sysroot_src_files: Option<HashMap<AbsPathBuf, String>>,
 }
 
 impl<'a> UnitAnalyzer<'a> {
@@ -83,6 +92,9 @@ impl<'a> UnitAnalyzer<'a> {
         unit: &'a CompilationUnit,
         writer: &'a mut dyn KytheWriter,
         provider: &'a mut dyn FileProvider,
+        sysroot: Option<String>,
+        sysroot_src: Option<String>,
+        sysroot_src_files: Option<HashMap<AbsPathBuf, String>>,
     ) -> Result<Self, KytheError> {
         // Create a HashMap between the file path and the VName which we can retrieve
         // later to emit nodes and create a HashMap between a file path and its digest
@@ -119,6 +131,9 @@ impl<'a> UnitAnalyzer<'a> {
             file_id_to_path: HashMap::new(),
             file_id_to_vname: HashMap::new(),
             def_to_signature: HashMap::new(),
+            sysroot,
+            sysroot_src,
+            sysroot_src_files,
         })
     }
 
@@ -160,11 +175,24 @@ impl<'a> UnitAnalyzer<'a> {
     }
 
     pub fn index_crate(&mut self) -> Result<(), KytheError> {
-        // Get the Rust project from the and deserialize it
+        // Get the Rust project file, add the sysroot and sysroot_src if we have it and
+        // deserialize
         let rust_project_file = self.get_rust_project_file()?;
-        let rust_project_data: ProjectJsonData =
+        let mut rust_project_value: Value =
             serde_json::from_str(&rust_project_file).map_err(|e| {
                 KytheError::IndexerError(format!("Failed to parse kythe-rust-project.json: {e}"))
+            })?;
+        if let Some(sysroot) = &self.sysroot {
+            rust_project_value["sysroot"] = sysroot.clone().into();
+        }
+        if let Some(sysroot_src) = &self.sysroot_src {
+            rust_project_value["sysroot_src"] = sysroot_src.clone().into();
+        }
+        let rust_project_data: ProjectJsonData = serde_json::from_value(rust_project_value)
+            .map_err(|e| {
+                KytheError::IndexerError(format!(
+                    "Failed to parse kythe-rust-project.json into ProjectJsonData from Value: {e}"
+                ))
             })?;
         let project_root = AbsPath::assert(Path::new("/kythe"));
         let rust_project = ProjectJson::new(project_root, rust_project_data);
@@ -212,12 +240,20 @@ impl<'a> UnitAnalyzer<'a> {
             }
         }
 
+        // Set up sysroot_src files
+        if let Some(sysroot_src_files) = &self.sysroot_src_files {
+            for (path, contents) in sysroot_src_files.iter() {
+                let vfs_path = VfsPath::from(path.clone());
+                vfs.set_file_contents(vfs_path.clone(), Some(contents.as_bytes().to_vec()));
+
+                let file_id = vfs.file_id(&vfs_path).unwrap();
+                analysis_change.change_file(file_id, Some(Arc::from(contents.clone())));
+            }
+        }
+
         // Generate and set the crate graph
         let (crate_graph, _) = workspace.to_crate_graph(
-            &mut |path: &AbsPath| {
-                // We already loaded the files so we just have to give it the file id
-                vfs.file_id(&VfsPath::from(path.to_path_buf()))
-            },
+            &mut |path: &AbsPath| vfs.file_id(&VfsPath::from(path.to_path_buf())),
             &extra_env,
         );
         analysis_change.set_crate_graph(crate_graph);
@@ -230,6 +266,12 @@ impl<'a> UnitAnalyzer<'a> {
         // Create the analysis host and apply the change
         let mut analysis_host = AnalysisHost::new(None);
         analysis_host.apply_change(analysis_change);
+
+        // Prime the analysis cache
+        analysis_host
+            .analysis()
+            .parallel_prime_caches(1, |_| {})
+            .map_err(|e| KytheError::IndexerError(format!("Failed to prime caches: {e}")))?;
 
         // Get the rust-analyzer database
         let db = analysis_host.raw_database();
@@ -538,12 +580,22 @@ impl<'a> UnitAnalyzer<'a> {
                 if module.is_crate_root() {
                     let def_source = module.definition_source(db);
                     let file_id = def_source.file_id.original_file(db);
-                    Some(self.file_id_to_path.get(&file_id.0).unwrap().to_owned())
+                    self.file_id_to_path.get(&file_id.0).map(|p| p.to_owned())
                 } else {
                     let parent = module.parent(db).unwrap();
                     let parent_signature = self.get_signature(db, Definition::Module(parent))?;
                     let name = module.name(db).unwrap().to_smol_str();
                     Some(format!("{parent_signature}::{name}"))
+                }
+            }
+            Definition::SelfType(s_type) => {
+                let ty = s_type.self_ty(db);
+                if let Some(adt) = ty.as_adt() {
+                    self.get_signature(db, Definition::Adt(adt))
+                } else if let Some(trait_) = ty.as_dyn_trait() {
+                    self.get_signature(db, Definition::Trait(trait_))
+                } else {
+                    None
                 }
             }
             Definition::Static(static_) => {
@@ -738,7 +790,6 @@ impl<'a> UnitAnalyzer<'a> {
         if matches!(
             &def,
             Definition::BuiltinType(_)
-                | Definition::SelfType(_)
                 | Definition::DeriveHelper(_)
                 | Definition::BuiltinAttr(_)
                 | Definition::ToolModule(_)
@@ -983,29 +1034,24 @@ impl<'a> UnitAnalyzer<'a> {
             // Emit param edges if this is a function
             if let Definition::Function(function) = &def {
                 let mut index = 0;
-                // I hate this code but it's necessary. You can only get the self param through
-                // .self_param(). Then, you have to manually get the definition located at the
-                // last token of the node (which should be the actual "self" token) because
-                // there isn't a helper function to convert the SelfParam to a local. And of
-                // course most of these functions return Options and we don't want this to crash
-                // the indexer so we end up with 4 nested if statements.
+                // rust-analyzer doesn't expose the function to convert the SelfParam to a Local
+                // so we have to copy the implementation here
                 if let Some(self_param) = function.self_param(db) {
                     if let Some(source) = self_param.source(db) {
-                        let self_token = source.value.syntax().last_token().unwrap();
-                        let local_def = IdentClass::classify_token(semantics, &self_token)
-                            .map(IdentClass::definitions_no_ops);
-                        if let Some(&[local_def]) = local_def.as_deref() {
-                            let mut param_vname = self.gen_base_vname();
-                            if let Some(param_signature) = self.get_signature(db, local_def) {
-                                param_vname.set_signature(param_signature);
-                                let edge_kind = format!("/kythe/edge/param.{index}");
-                                self.emitter.emit_edge(&def_vname, &param_vname, &edge_kind)?;
-                                index += 1;
+                        let function_def_id = DefWithBodyId::FunctionId((*function).into());
+                        let (body, source_map) = db.body_with_source_map(function_def_id);
+                        if let Some(pat_id) = source_map.node_self_param(source.as_ref()) {
+                            if let ra_ap_hir_def::hir::Pat::Bind { id, .. } = body[pat_id] {
+                                let local_def =
+                                    Definition::Local(Local::from((function_def_id, id)));
+                                if let Some(param_signature) = self.get_signature(db, local_def) {
+                                    let mut param_vname = self.gen_base_vname();
+                                    param_vname.set_signature(param_signature);
+                                    let edge_kind = format!("/kythe/edge/param.{index}");
+                                    self.emitter.emit_edge(&def_vname, &param_vname, &edge_kind)?;
+                                    index += 1;
+                                }
                             }
-                        } else {
-                            // TODO: Might want to emit a diagnostic node that
-                            // we couldn't find a
-                            // Definition::Local for the self param
                         }
                     }
                 }
@@ -1375,7 +1421,7 @@ impl<'a> UnitAnalyzer<'a> {
             Definition::Local(local) => {
                 let mut children = vec![];
                 if let Some(self_param) = local.as_self_param(db) {
-                    let mut modifier = match self_param.access(db) {
+                    let modifier = match self_param.access(db) {
                         Access::Shared => "&",
                         Access::Exclusive => "&mut ",
                         Access::Owned => {
@@ -1453,6 +1499,23 @@ impl<'a> UnitAnalyzer<'a> {
 
                 children.push(self.marked_source_identifier(def, db)?);
                 Some(children)
+            }
+            Definition::Variant(variant) => {
+                let mut box_ms = MarkedSource::new();
+                box_ms.set_kind(MarkedSource_Kind::BOX);
+                box_ms.set_post_child_text("::".into());
+                let mut children = vec![];
+
+                let mut modifier = self.marked_source_identifier(
+                    Definition::Adt(Adt::Enum(variant.parent_enum(db))),
+                    db,
+                )?;
+                modifier.set_kind(MarkedSource_Kind::MODIFIER);
+                children.push(modifier);
+                children.push(self.marked_source_identifier(def, db)?);
+
+                box_ms.set_child(RepeatedField::from_vec(children));
+                Some(vec![box_ms])
             }
             _ => None,
         }?;
@@ -1594,6 +1657,16 @@ fn get_definition_range(
                 _ => None,
             }?;
             Some(FileRange { file_id: def_file_id.0, text_range })
+        }
+        Definition::SelfType(s_type) => {
+            let ty = s_type.self_ty(db);
+            if let Some(adt) = ty.as_adt() {
+                get_definition_range(semantics, db, Definition::Adt(adt))
+            } else if let Some(trait_) = ty.as_dyn_trait() {
+                get_definition_range(semantics, db, Definition::Trait(trait_))
+            } else {
+                None
+            }
         }
         Definition::Static(static_) => {
             let source = semantics.source(static_)?;

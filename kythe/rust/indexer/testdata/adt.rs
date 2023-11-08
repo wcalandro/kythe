@@ -22,7 +22,21 @@ struct S {
 }
 
 //- @S ref Struct
-impl S {}
+impl S {
+    //- @hello defines/binding StructHelloFn
+    //- StructHelloFn childof Struct
+    //- StructHelloFn.node/kind function
+    //- StructHelloFn.complete definition
+    pub fn hello() {
+        println!("Hello from Struct!");
+    }
+    
+    pub fn call_hello() {
+        //- @Self ref Struct
+        //- @hello ref/call StructHelloFn
+        Self::hello();
+    }
+}
 
 //- @U defines/binding Union
 //- Union childof Module

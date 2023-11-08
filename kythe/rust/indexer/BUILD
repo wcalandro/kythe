@@ -15,7 +15,9 @@ rust_library(
         "//kythe/proto:common_rust_proto",
         "//kythe/proto:storage_rust_proto",
         "@crate_index//:base64",
+        "@crate_index//:glob",
         "@crate_index//:hex",
+        "@crate_index//:path-absolutize",
         "@crate_index//:protobuf",
         "@crate_index//:pulldown-cmark",
         "@crate_index//:quick-error",
@@ -87,6 +89,7 @@ rust_binary(
         "//kythe/proto:analysis_rust_proto",
         "@crate_index//:anyhow",
         "@crate_index//:base64",
+        "@crate_index//:clap",
         "@crate_index//:protobuf",
         "@crate_index//:serde_json",
     ],
@@ -150,6 +153,7 @@ rust_indexer_test(
     name = "markedsource_test",
     srcs = ["testdata/markedsource.rs"],
     has_marked_source = True,
+    include_sysroot = True,
     resolve_code_facts = True,
 )
 

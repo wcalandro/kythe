@@ -89,7 +89,7 @@ ruby_bundle(
 load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository", "render_config")
 
 # Run `CARGO_BAZEL_REPIN=1 bazel sync --only=crate_index` after updating
-rust_analyzer_version = "=0.0.172"
+rust_analyzer_version = "=0.0.184"
 
 crates_repository(
     name = "crate_index",
@@ -114,6 +114,9 @@ crates_repository(
         ),
         "hex": crate.spec(
             version = "0.4.3",
+        ),
+        "path-absolutize": crate.spec(
+            version = "=3.1.1",
         ),
         "pulldown-cmark": crate.spec(
             version = "=0.9.3",

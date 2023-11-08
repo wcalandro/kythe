@@ -22,14 +22,20 @@ use std::path::PathBuf;
 #[clap(author = "The Kythe Authors")]
 #[clap(about = "Kythe Rust Bazel Indexer", long_about = None)]
 #[clap(rename_all = "snake_case")]
-struct Args {
+struct App {
+    /// The path to the Rust sysroot
+    #[clap(long, value_parser)]
+    sysroot: Option<PathBuf>,
+    /// The path to the Rust sysroot source files
+    #[clap(long, value_parser)]
+    sysroot_src: Option<PathBuf>,
     /// The path to the kzip to be indexed
     #[clap(value_parser)]
     kzip_path: PathBuf,
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = App::parse();
 
     // Get kzip path from argument and use it to create a KzipFileProvider
     // Unwrap is safe because the parameter is required
@@ -43,7 +49,7 @@ fn main() -> Result<()> {
     // Create instances of StreamWriter and KytheIndexer
     let mut stdout_writer = std::io::stdout();
     let mut writer = CodedOutputStreamWriter::new(&mut stdout_writer);
-    let mut indexer = KytheIndexer::new(&mut writer);
+    let mut indexer = KytheIndexer::new(&mut writer, args.sysroot, args.sysroot_src);
 
     for unit in compilation_units {
         indexer.index_cu(&unit, &mut kzip_provider)?;
