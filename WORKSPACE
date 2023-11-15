@@ -151,6 +151,9 @@ crates_repository(
         "ra_ap_vfs": crate.spec(
             version = rust_analyzer_version,
         ),
+        "rayon": crate.spec(
+            version = "=1.8.0",
+        ),
         "regex": crate.spec(
             version = "1.5.6",
         ),
@@ -166,6 +169,9 @@ crates_repository(
         ),
         "triomphe": crate.spec(
             version = "=0.1.9",
+        ),
+        "salsa": crate.spec(
+            version = "=0.17.0-pre.2",
         ),
         "sha2": crate.spec(
             version = "0.10.2",

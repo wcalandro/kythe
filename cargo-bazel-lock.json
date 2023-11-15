@@ -1,5 +1,5 @@
 {
-  "checksum": "ba1ba08bd196c63a1f56a35d27598ff8aec9ee28361e375bb0f74ad341a7af64",
+  "checksum": "008239b288a9f59436a27fd06b9613586ef589261dbc047323c524c8ae445ae7",
   "crates": {
     "adler 1.0.2": {
       "name": "adler",
@@ -2014,12 +2014,20 @@
               "target": "ra_ap_vfs"
             },
             {
+              "id": "rayon 1.8.0",
+              "target": "rayon"
+            },
+            {
               "id": "regex 1.7.1",
               "target": "regex"
             },
             {
               "id": "rustc-hash 1.1.0",
               "target": "rustc_hash"
+            },
+            {
+              "id": "salsa 0.17.0-pre.2",
+              "target": "salsa"
             },
             {
               "id": "serde 1.0.171",
@@ -2845,45 +2853,6 @@
         },
         "edition": "2018",
         "version": "0.1.19"
-      },
-      "license": "MIT/Apache-2.0"
-    },
-    "hermit-abi 0.2.6": {
-      "name": "hermit-abi",
-      "version": "0.2.6",
-      "repository": {
-        "Http": {
-          "url": "https://crates.io/api/v1/crates/hermit-abi/0.2.6/download",
-          "sha256": "ee512640fe35acbfb4bb779db6f0d80704c2cacfa2e39b601ef3e3f47d1ae4c7"
-        }
-      },
-      "targets": [
-        {
-          "Library": {
-            "crate_name": "hermit_abi",
-            "crate_root": "src/lib.rs",
-            "srcs": [
-              "**/*.rs"
-            ]
-          }
-        }
-      ],
-      "library_target_name": "hermit_abi",
-      "common_attrs": {
-        "compile_data_glob": [
-          "**"
-        ],
-        "deps": {
-          "common": [
-            {
-              "id": "libc 0.2.147",
-              "target": "libc"
-            }
-          ],
-          "selects": {}
-        },
-        "edition": "2021",
-        "version": "0.2.6"
       },
       "license": "MIT/Apache-2.0"
     },
@@ -4264,53 +4233,6 @@
         "version": "6.1.1"
       },
       "license": "CC0-1.0"
-    },
-    "num_cpus 1.15.0": {
-      "name": "num_cpus",
-      "version": "1.15.0",
-      "repository": {
-        "Http": {
-          "url": "https://crates.io/api/v1/crates/num_cpus/1.15.0/download",
-          "sha256": "0fac9e2da13b5eb447a6ce3d392f23a29d8694bff781bf03a16cd9ac8697593b"
-        }
-      },
-      "targets": [
-        {
-          "Library": {
-            "crate_name": "num_cpus",
-            "crate_root": "src/lib.rs",
-            "srcs": [
-              "**/*.rs"
-            ]
-          }
-        }
-      ],
-      "library_target_name": "num_cpus",
-      "common_attrs": {
-        "compile_data_glob": [
-          "**"
-        ],
-        "deps": {
-          "common": [],
-          "selects": {
-            "cfg(all(any(target_arch = \"x86_64\", target_arch = \"aarch64\"), target_os = \"hermit\"))": [
-              {
-                "id": "hermit-abi 0.2.6",
-                "target": "hermit_abi"
-              }
-            ],
-            "cfg(not(windows))": [
-              {
-                "id": "libc 0.2.147",
-                "target": "libc"
-              }
-            ]
-          }
-        },
-        "edition": "2015",
-        "version": "1.15.0"
-      },
-      "license": "MIT OR Apache-2.0"
     },
     "object 0.32.1": {
       "name": "object",
@@ -6808,7 +6730,7 @@
               "alias": "text_edit"
             },
             {
-              "id": "rayon 1.6.1",
+              "id": "rayon 1.8.0",
               "target": "rayon"
             },
             {
@@ -8101,13 +8023,13 @@
       },
       "license": "MIT OR Apache-2.0"
     },
-    "rayon 1.6.1": {
+    "rayon 1.8.0": {
       "name": "rayon",
-      "version": "1.6.1",
+      "version": "1.8.0",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/rayon/1.6.1/download",
-          "sha256": "6db3a213adf02b3bcfd2d3846bb41cb22857d131789e01df434fb7e7bc0759b7"
+          "url": "https://crates.io/api/v1/crates/rayon/1.8.0/download",
+          "sha256": "9c27db03db7734835b3f53954b534c91069375ce6ccaa2e065441e07d9b6cdb1"
         }
       },
       "targets": [
@@ -8133,24 +8055,24 @@
               "target": "either"
             },
             {
-              "id": "rayon-core 1.10.1",
+              "id": "rayon-core 1.12.0",
               "target": "rayon_core"
             }
           ],
           "selects": {}
         },
         "edition": "2021",
-        "version": "1.6.1"
+        "version": "1.8.0"
       },
       "license": "MIT OR Apache-2.0"
     },
-    "rayon-core 1.10.1": {
+    "rayon-core 1.12.0": {
       "name": "rayon-core",
-      "version": "1.10.1",
+      "version": "1.12.0",
       "repository": {
         "Http": {
-          "url": "https://crates.io/api/v1/crates/rayon-core/1.10.1/download",
-          "sha256": "cac410af5d00ab6884528b4ab69d1e8e146e8d471201800fa1b4524126de6ad3"
+          "url": "https://crates.io/api/v1/crates/rayon-core/1.12.0/download",
+          "sha256": "5ce3fb6ad83f861aac485e76e1985cd109d9a3713802152be56c3b1f0e0658ed"
         }
       },
       "targets": [
@@ -8181,10 +8103,6 @@
         "deps": {
           "common": [
             {
-              "id": "crossbeam-channel 0.5.6",
-              "target": "crossbeam_channel"
-            },
-            {
               "id": "crossbeam-deque 0.8.2",
               "target": "crossbeam_deque"
             },
@@ -8193,18 +8111,14 @@
               "target": "crossbeam_utils"
             },
             {
-              "id": "num_cpus 1.15.0",
-              "target": "num_cpus"
-            },
-            {
-              "id": "rayon-core 1.10.1",
+              "id": "rayon-core 1.12.0",
               "target": "build_script_build"
             }
           ],
           "selects": {}
         },
         "edition": "2021",
-        "version": "1.10.1"
+        "version": "1.12.0"
       },
       "build_script_attrs": {
         "data_glob": [
@@ -12120,7 +12034,6 @@
     "armv7-unknown-linux-gnueabi": [
       "armv7-unknown-linux-gnueabi"
     ],
-    "cfg(all(any(target_arch = \"x86_64\", target_arch = \"aarch64\"), target_os = \"hermit\"))": [],
     "cfg(all(target_arch = \"aarch64\", target_env = \"msvc\", not(windows_raw_dylib)))": [
       "aarch64-pc-windows-msvc"
     ],
@@ -12205,36 +12118,6 @@
       "x86_64-fuchsia",
       "x86_64-linux-android",
       "x86_64-pc-windows-msvc",
-      "x86_64-unknown-freebsd",
-      "x86_64-unknown-linux-gnu",
-      "x86_64-unknown-none"
-    ],
-    "cfg(not(windows))": [
-      "aarch64-apple-darwin",
-      "aarch64-apple-ios",
-      "aarch64-apple-ios-sim",
-      "aarch64-fuchsia",
-      "aarch64-linux-android",
-      "aarch64-unknown-linux-gnu",
-      "arm-unknown-linux-gnueabi",
-      "armv7-linux-androideabi",
-      "armv7-unknown-linux-gnueabi",
-      "i686-apple-darwin",
-      "i686-linux-android",
-      "i686-unknown-freebsd",
-      "i686-unknown-linux-gnu",
-      "powerpc-unknown-linux-gnu",
-      "riscv32imc-unknown-none-elf",
-      "riscv64gc-unknown-none-elf",
-      "s390x-unknown-linux-gnu",
-      "thumbv7em-none-eabi",
-      "thumbv8m.main-none-eabi",
-      "wasm32-unknown-unknown",
-      "wasm32-wasi",
-      "x86_64-apple-darwin",
-      "x86_64-apple-ios",
-      "x86_64-fuchsia",
-      "x86_64-linux-android",
       "x86_64-unknown-freebsd",
       "x86_64-unknown-linux-gnu",
       "x86_64-unknown-none"

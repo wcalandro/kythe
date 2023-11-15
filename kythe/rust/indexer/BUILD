@@ -3,6 +3,13 @@ load("//tools/build_rules/verifier_test:rust_indexer_test.bzl", "rust_indexer_te
 
 package(default_visibility = ["//visibility:public"])
 
+config_setting(
+    name = "optbuild",
+    values = {
+        "compilation_mode": "opt",
+    },
+)
+
 rust_library(
     name = "kythe_rust_indexer",
     srcs = glob(
@@ -30,8 +37,10 @@ rust_library(
         "@crate_index//:ra_ap_project_model",
         "@crate_index//:ra_ap_syntax",
         "@crate_index//:ra_ap_vfs",
+        "@crate_index//:rayon",
         "@crate_index//:regex",
         "@crate_index//:rustc-hash",
+        "@crate_index//:salsa",
         "@crate_index//:serde",
         "@crate_index//:serde_json",
         "@crate_index//:sha2",
@@ -84,6 +93,13 @@ rust_binary(
     ),
     crate_root = ":src/bin/proxy/main.rs",
     edition = "2021",
+    rustc_flags = select({
+        ":optbuild": [
+            "-Clto=fat",
+            "-Ccodegen-units=1",
+        ],
+        "//conditions:default": [],
+    }),
     deps = [
         ":kythe_rust_indexer",
         "//kythe/proto:analysis_rust_proto",

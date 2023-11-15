@@ -48,8 +48,8 @@ use serde_json::Value;
 use storage_rust_proto::*;
 use triomphe::Arc;
 
-use std::collections::HashMap;
 use std::path::Path;
+use std::{num::NonZeroUsize, time::SystemTime};
 
 struct FileRange {
     pub file_id: u32,
@@ -65,23 +65,26 @@ pub struct UnitAnalyzer<'a> {
     // The emitter used to  write generated nodes and edges
     emitter: EntryEmitter<'a>,
     // A map between a file name and its Kythe VName
-    file_vnames: HashMap<String, VName>,
+    file_vnames: FxHashMap<String, VName>,
     // A map between a file name and its sha256 digest
-    file_digests: HashMap<String, String>,
+    file_digests: FxHashMap<String, String>,
     // A file provider
     provider: &'a mut dyn FileProvider,
     /// A map between rust-analyzer FileId and the string source path
-    file_id_to_path: HashMap<u32, String>,
+    file_id_to_path: FxHashMap<u32, String>,
     /// A map between rust-analyzer FileId and Kythe VName
-    file_id_to_vname: HashMap<u32, VName>,
+    file_id_to_vname: FxHashMap<u32, VName>,
     /// A map between rust-analyzer Definition and Kythe VName signature
-    def_to_signature: HashMap<Definition, String>,
+    def_to_signature: FxHashMap<Definition, String>,
     /// An optional string path to the Rust sysroot
     sysroot: Option<String>,
     /// An optional string path to the Rust sysroot source files
     sysroot_src: Option<String>,
     /// An optional map of sysroot source file paths to their string contents
-    sysroot_src_files: Option<HashMap<AbsPathBuf, String>>,
+    sysroot_src_files: Option<FxHashMap<AbsPathBuf, String>>,
+    /// Optional number of threads to use to prime the analysis cache. If this
+    /// value is None, the max amount of parallelism is used.
+    max_parallelism: Option<u8>,
 }
 
 impl<'a> UnitAnalyzer<'a> {
@@ -94,12 +97,13 @@ impl<'a> UnitAnalyzer<'a> {
         provider: &'a mut dyn FileProvider,
         sysroot: Option<String>,
         sysroot_src: Option<String>,
-        sysroot_src_files: Option<HashMap<AbsPathBuf, String>>,
+        sysroot_src_files: Option<FxHashMap<AbsPathBuf, String>>,
+        max_parallelism: Option<u8>,
     ) -> Result<Self, KytheError> {
-        // Create a HashMap between the file path and the VName which we can retrieve
-        // later to emit nodes and create a HashMap between a file path and its digest
-        let mut file_vnames = HashMap::new();
-        let mut file_digests = HashMap::new();
+        // Create a FxHashMap between the file path and the VName which we can retrieve
+        // later to emit nodes and create a FxHashMap between a file path and its digest
+        let mut file_vnames = FxHashMap::default();
+        let mut file_digests = FxHashMap::default();
         let required_inputs = unit.get_required_input();
 
         // Check if there are no required inputs
@@ -128,12 +132,13 @@ impl<'a> UnitAnalyzer<'a> {
             file_vnames,
             file_digests,
             provider,
-            file_id_to_path: HashMap::new(),
-            file_id_to_vname: HashMap::new(),
-            def_to_signature: HashMap::new(),
+            file_id_to_path: FxHashMap::default(),
+            file_id_to_vname: FxHashMap::default(),
+            def_to_signature: FxHashMap::default(),
             sysroot,
             sysroot_src,
             sysroot_src_files,
+            max_parallelism,
         })
     }
 
@@ -268,10 +273,19 @@ impl<'a> UnitAnalyzer<'a> {
         analysis_host.apply_change(analysis_change);
 
         // Prime the analysis cache
+        let parallelism = if let Some(max_parallelism) = &self.max_parallelism {
+            *max_parallelism
+        } else {
+            let available =
+                std::thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
+            available.get() as u8
+        };
+        let mut time = SystemTime::now();
         analysis_host
             .analysis()
-            .parallel_prime_caches(1, |_| {})
+            .parallel_prime_caches(parallelism, |_| {})
             .map_err(|e| KytheError::IndexerError(format!("Failed to prime caches: {e}")))?;
+        eprintln!("Priming took {:?}", SystemTime::now().duration_since(time).unwrap());
 
         // Get the rust-analyzer database
         let db = analysis_host.raw_database();
@@ -288,6 +302,7 @@ impl<'a> UnitAnalyzer<'a> {
 
         // Analyze all source files
         let semantics = Semantics::new(db);
+        time = SystemTime::now();
         for file_id in source_file_ids {
             let tokens = semantics
                 .parse(FileId(file_id))
@@ -317,6 +332,7 @@ impl<'a> UnitAnalyzer<'a> {
                 };
             }
         }
+        eprintln!("Indexing took {:?}", SystemTime::now().duration_since(time).unwrap());
 
         Ok(())
     }
@@ -333,7 +349,7 @@ impl<'a> UnitAnalyzer<'a> {
             worklist.extend(module.children(db));
         }
 
-        let mut module_to_vname: HashMap<Module, VName> = HashMap::new();
+        let mut module_to_vname: FxHashMap<Module, VName> = FxHashMap::default();
 
         for module in modules {
             let def = Definition::Module(module);

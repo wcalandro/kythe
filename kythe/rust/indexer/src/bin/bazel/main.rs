@@ -29,6 +29,10 @@ struct App {
     /// The path to the Rust sysroot source files
     #[clap(long, value_parser)]
     sysroot_src: Option<PathBuf>,
+    /// The max number of threads to use for parallel operations (default is num
+    /// of CPU cores)
+    #[clap(long)]
+    max_parallelism: Option<u8>,
     /// The path to the kzip to be indexed
     #[clap(value_parser)]
     kzip_path: PathBuf,
@@ -49,7 +53,8 @@ fn main() -> Result<()> {
     // Create instances of StreamWriter and KytheIndexer
     let mut stdout_writer = std::io::stdout();
     let mut writer = CodedOutputStreamWriter::new(&mut stdout_writer);
-    let mut indexer = KytheIndexer::new(&mut writer, args.sysroot, args.sysroot_src);
+    let mut indexer =
+        KytheIndexer::new(&mut writer, args.sysroot, args.sysroot_src, args.max_parallelism);
 
     for unit in compilation_units {
         indexer.index_cu(&unit, &mut kzip_provider)?;

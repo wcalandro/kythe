@@ -33,13 +33,18 @@ struct App {
     /// The path to the Rust sysroot source files
     #[clap(long, value_parser)]
     sysroot_src: Option<PathBuf>,
+    /// The max number of threads to use for parallel operations (default is num
+    /// of CPU cores)
+    #[clap(long)]
+    max_parallelism: Option<u8>,
 }
 
 fn main() -> Result<()> {
     let args = App::parse();
     let mut file_provider = ProxyFileProvider::new();
     let mut kythe_writer = ProxyWriter::default();
-    let mut indexer = KytheIndexer::new(&mut kythe_writer, args.sysroot, args.sysroot_src);
+    let mut indexer =
+        KytheIndexer::new(&mut kythe_writer, args.sysroot, args.sysroot_src, args.max_parallelism);
 
     // Request and process
     loop {
